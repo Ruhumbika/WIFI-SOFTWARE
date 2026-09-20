@@ -1,0 +1,477 @@
+@font-face {
+  font-family: Inter;
+  src: url('/fonts/Inter-variable.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+html.portal-page {
+  scrollbar-width: none;
+}
+
+html.portal-page::-webkit-scrollbar,
+html.portal-page body::-webkit-scrollbar {
+  display: none;
+}
+
+.voucher-print-sheet { display: none; }
+@media print {
+  body.voucher-printing #app { display: none !important; }
+  body.voucher-printing .voucher-print-sheet { display: grid; width: 100%; gap: 6mm; background: white; color: #0f172a; }
+  body.voucher-printing .voucher-print-sheet--cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.voucher-printing .voucher-print-sheet--thermal { width: 58mm; grid-template-columns: 1fr; gap: 0; }
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-variable.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+}
+
+:root {
+  --bs-body-font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #1e293b;
+  background: #f8fafc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f8fafc;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6, .money, .state-amount {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+}
+
+.price, .plan-option__price strong, .voucher-ticket__summary > strong,
+.voucher-ticket__copy strong, .voucher-ticket__pin strong {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.portal-shell p, .portal-shell label, .voucher-ticket__facts,
+.voucher-ticket__code-label, .voucher-ticket__detail-row,
+.recent-row__main > span {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 400;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.brand {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.btn-primary {
+  --bs-btn-bg: #0f9675;
+  --bs-btn-border-color: #0f9675;
+  --bs-btn-hover-bg: #0a7359;
+  --bs-btn-hover-border-color: #0a7359;
+  --bs-btn-active-bg: #08644e;
+  --bs-btn-active-border-color: #08644e;
+}
+
+.text-accent {
+  color: #0f9675;
+}
+
+.card {
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 20px;
+  background: #eef3f9;
+  box-shadow: 8px 8px 18px #cbd5df, -8px -8px 18px #fff;
+}
+
+.mobile-ledger {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 20px;
+  background: #eef3f9;
+  box-shadow: 7px 7px 16px #cbd5df, -7px -7px 16px #fff;
+}
+.mobile-ledger__head,
+.mobile-ledger__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+}
+.mobile-ledger__head {
+  color: #475569;
+  font-size: .68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.mobile-ledger__row {
+  border-top: 1px solid #d5dfe9;
+  color: #243447;
+  font-size: .78rem;
+}
+.mobile-ledger__row > * { min-width: 0; overflow-wrap: anywhere; }
+.mobile-ledger__row small { color: #64748b; }
+.mobile-ledger__row .badge { white-space: normal; text-align: center; }
+.mobile-ledger__row button,
+.mobile-ledger__row a { min-height: 40px; max-width: 100%; white-space: normal; }
+.voucher-ledger__head,
+.voucher-ledger__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px 12px; padding: 12px; }
+.voucher-ledger__head { color: #475569; font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+.voucher-ledger__row { border-top: 1px solid #d5dfe9; font-size: .8rem; }
+.voucher-ledger__main { min-width: 0; overflow-wrap: anywhere; }
+.voucher-ledger__main strong,
+.voucher-ledger__main small { display: block; }
+.voucher-ledger__main small { margin-top: 2px; color: #64748b; }
+.voucher-ledger__row .badge { max-width: 110px; white-space: normal; text-align: center; }
+.voucher-ledger__actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.voucher-ledger__actions label { display: flex; align-items: center; gap: 6px; min-height: 40px; }
+.voucher-ledger__actions .btn { min-height: 40px; }
+
+.admin-layout .table { --bs-table-bg: transparent; --bs-table-border-color: #d5dfe9; }
+.admin-layout .table tbody tr:hover { --bs-table-bg: #e5edf5; }
+
+.bi-wifi { display: inline-block; animation: wifi-breathe 2.4s ease-in-out infinite; transform-origin: center; }
+@keyframes wifi-breathe {
+  0%, 100% { opacity: .72; transform: scale(.94); }
+  50% { opacity: 1; transform: scale(1.09); }
+}
+@media (prefers-reduced-motion: reduce), print {
+  .bi-wifi { animation: none; transform: none; opacity: 1; }
+}
+
+.stat {
+  font-size: 1.8rem;
+  font-weight: 800;
+}
+
+.sidebar {
+  min-height: 100vh;
+  background: #0f172a;
+  color: white;
+}
+
+.sidebar a {
+  display: block;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.5rem;
+  color: #cbd5e1;
+  text-decoration: none;
+}
+
+.sidebar a.router-link-exact-active,
+.sidebar a:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+}
+
+.admin-main { padding-bottom: 5.5rem !important; }
+
+.admin-bottom-nav {
+  position: fixed;
+  z-index: 20;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0.25rem max(0.25rem, env(safe-area-inset-right)) max(0.25rem, env(safe-area-inset-bottom)) max(0.25rem, env(safe-area-inset-left));
+  border-top: 1px solid #dbe4ec;
+  background: #fff;
+  box-shadow: 0 -5px 22px rgba(15, 23, 42, 0.08);
+}
+
+.admin-bottom-nav a {
+  display: flex;
+  min-height: 56px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  color: #475569;
+  font-size: 0.73rem;
+  text-decoration: none;
+}
+
+.admin-bottom-nav a i { font-size: 1.2rem; }
+.admin-bottom-nav a.router-link-exact-active { color: #087558; font-weight: 800; }
+.admin-bottom-nav a:focus-visible { outline: 3px solid #0f9675; outline-offset: -3px; }
+
+@media (min-width: 992px) { .admin-main { padding-bottom: 1.5rem !important; } }
+
+.table th {
+  color: #64748b;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.portal-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(15, 150, 117, 0.25), transparent 26rem),
+    linear-gradient(180deg, #0f172a 0, #17233a 37%, #f8fafc 37%);
+}
+
+.portal-container {
+  max-width: 920px;
+}
+
+.portal-hero {
+  padding: 1.25rem 0 1.5rem;
+}
+
+.portal-brand {
+  font-size: clamp(2rem, 10vw, 3rem);
+}
+
+.portal-subtitle {
+  margin-top: 0.25rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.portal-panel {
+  padding: 1.25rem;
+  border-radius: 22px;
+}
+
+.portal-step {
+  margin-bottom: 0.35rem;
+  color: #0f9675;
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.portal-title {
+  margin: 0;
+  color: #0f172a;
+  font-size: clamp(1.45rem, 7vw, 2.1rem);
+  font-weight: 850;
+  letter-spacing: -0.035em;
+}
+
+.portal-lead {
+  margin: 0.45rem 0 0;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+
+.plan-card {
+  min-height: 112px;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: #ffffff;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.plan-card:active {
+  transform: scale(0.985);
+}
+
+.plan-card.selected {
+  border: 2px solid #0f9675;
+  background: #f5fbf9;
+  box-shadow: 0 10px 28px rgba(15, 150, 117, 0.1);
+}
+
+.plan-price {
+  color: #0f172a;
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+@media (max-width: 575.98px) {
+  .plan-card { padding: 0.75rem !important; }
+  .plan-price { font-size: 1.6rem; }
+}
+
+.portal-input {
+  min-height: 50px;
+  border-radius: 13px;
+}
+
+.portal-device-note {
+  color: #64748b;
+  font-size: 0.84rem;
+}
+
+.portal-pay-button {
+  display: inline-flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 15px;
+  font-weight: 850;
+}
+
+.payment-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mock-button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.portal-success {
+  width: min(100%, 520px);
+  margin: 0 auto;
+}
+
+.portal-success__intro {
+  padding: 0.6rem 0 1.3rem;
+}
+
+.portal-success__intro h1 {
+  margin: 0.75rem 0 0.35rem;
+  font-size: clamp(1.55rem, 8vw, 2rem);
+  font-weight: 850;
+  letter-spacing: -0.035em;
+}
+
+.portal-success__intro p {
+  max-width: 420px;
+  margin: 0 auto;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.9rem;
+}
+
+.portal-success__icon {
+  display: inline-flex;
+  width: 58px;
+  height: 58px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  background: rgba(15, 150, 117, 0.24);
+  color: #a7f3d0;
+  font-size: 1.7rem;
+}
+
+.badge-soft {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.code-box {
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: #f1f5f9;
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.voucher-admin-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.voucher-generator {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) 90px auto;
+  gap: 8px;
+}
+
+.voucher-generator .form-select,
+.voucher-generator .form-control,
+.voucher-generator .btn,
+.retry-button {
+  min-height: 48px;
+}
+
+.voucher-mobile-list {
+  display: grid;
+  gap: 18px;
+}
+
+.retry-button {
+  margin-top: 8px;
+  border-radius: 14px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .plan-card:hover {
+    transform: translateY(-2px);
+  }
+}
+
+@media (max-width: 991.98px) {
+  .sidebar {
+    min-height: auto;
+  }
+
+  .voucher-admin-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .voucher-generator {
+    grid-template-columns: minmax(0, 1fr) 82px;
+  }
+
+  .voucher-generator .btn {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .portal-shell {
+    background:
+      radial-gradient(circle at 15% 0%, rgba(15, 150, 117, 0.24), transparent 20rem),
+      linear-gradient(180deg, #0f172a 0, #17233a 43%, #f8fafc 43%);
+  }
+
+  .portal-panel {
+    padding: 1rem;
+    border-radius: 20px;
+  }
+
+  .payment-state {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mock-button {
+    width: 100%;
+    min-height: 48px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan-card {
+    transition: none;
+  }
+}
+
+@media print {
+  .sidebar, .admin-bottom-nav, .admin-main > button, .admin-main .btn { display: none !important; }
+  .admin-main { width: 100% !important; padding: 0 !important; }
+}

@@ -1,0 +1,60 @@
+<?php
+
+use App\Http\Controllers\AdminController;
+use App\Http\Controllers\AdvancedAccessController;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\PublicPortalController;
+use App\Http\Controllers\RouterSetupController;
+use App\Http\Controllers\SnippeWebhookController;
+use Illuminate\Support\Facades\Route;
+
+Route::post('/auth/login', [AuthController::class, 'login']);
+
+Route::prefix('public')->group(function () {
+    Route::get('/plans', [PublicPortalController::class, 'plans']);
+    Route::post('/orders', [PublicPortalController::class, 'createOrder']);
+    Route::post('/orders/{uuid}/pay', [PublicPortalController::class, 'pay']);
+    Route::post('/orders/{uuid}/resend-push', [PublicPortalController::class, 'resendPush'])->middleware('throttle:6,1');
+    Route::get('/orders/{uuid}', [PublicPortalController::class, 'showOrder']);
+    Route::get('/orders/{uuid}/connection', [PublicPortalController::class, 'connectionStatus']);
+    Route::post('/orders/{uuid}/mock-complete', [PublicPortalController::class, 'mockComplete']);
+    Route::post('/orders/{uuid}/prepare-connection', [PublicPortalController::class, 'prepareConnection']);
+});
+
+Route::post('/webhooks/snippe', SnippeWebhookController::class);
+
+Route::middleware('admin.token')->prefix('admin')->group(function () {
+    Route::get('/router/advanced/permission', [AdvancedAccessController::class, 'permission']);
+    Route::get('/router/advanced/access', [AdvancedAccessController::class, 'access'])->middleware('throttle:20,1');
+    Route::post('/router/advanced/events', [AdvancedAccessController::class, 'event'])->middleware('throttle:30,1');
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/dashboard', [AdminController::class, 'dashboard']);
+    Route::get('/logs', [AdminController::class, 'logs']);
+    Route::get('/router/health', [AdminController::class, 'routerHealth']);
+    Route::get('/router/diagnostics', [AdminController::class, 'routerDiagnostics']);
+    Route::post('/router/sync', [AdminController::class, 'routerSync']);
+    Route::get('/router/setup', [RouterSetupController::class, 'show']);
+    Route::get('/router/customer-wifi', [RouterSetupController::class, 'customerWifi']);
+    Route::patch('/router/customer-wifi', [RouterSetupController::class, 'renameCustomerWifi'])->middleware('throttle:3,1');
+    Route::get('/router/naming', [RouterSetupController::class, 'naming']);
+    Route::put('/router/naming', [RouterSetupController::class, 'saveNaming'])->middleware('throttle:3,1');
+    Route::get('/router/uplink', [RouterSetupController::class, 'uplinkStatus']);
+    Route::post('/router/uplink', [RouterSetupController::class, 'configureUplink'])->middleware('throttle:3,1');
+    Route::post('/router/setup/test', [RouterSetupController::class, 'test'])->middleware('throttle:6,1');
+    Route::post('/router/setup', [RouterSetupController::class, 'save'])->middleware('throttle:6,1');
+    Route::get('/router/hotspot-login', [RouterSetupController::class, 'downloadHotspotLogin']);
+    Route::post('/router/profiles/prepare', [RouterSetupController::class, 'prepareProfiles'])->middleware('throttle:3,1');
+    Route::post('/router/identity', [RouterSetupController::class, 'rename'])->middleware('throttle:6,1');
+    Route::get('/plans', [AdminController::class, 'plans']);
+    Route::post('/plans', [AdminController::class, 'storePlan']);
+    Route::put('/plans/{plan}', [AdminController::class, 'updatePlan']);
+    Route::get('/orders', [AdminController::class, 'orders']);
+    Route::get('/payments', [AdminController::class, 'payments']);
+    Route::get('/vouchers', [AdminController::class, 'vouchers']);
+    Route::get('/vouchers/{voucher}', [AdminController::class, 'showVoucher']);
+    Route::post('/vouchers/generate', [AdminController::class, 'generateVouchers']);
+    Route::post('/vouchers/{voucher}/retry', [AdminController::class, 'retryVoucher']);
+    Route::post('/vouchers/{voucher}/disable', [AdminController::class, 'disableVoucher']);
+    Route::get('/sessions', [AdminController::class, 'sessions']);
+    Route::post('/sessions/{session}/disconnect', [AdminController::class, 'disconnectSession']);
+});

@@ -1,0 +1,14 @@
+[Unit]
+Description=RJAY Hotspot session scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/run/media/rjay-digital-hub/LinuxData/projects/web/backend/rjay-hotspot-mvp-upgraded/backend
+ExecStart=/usr/bin/php artisan schedule:work
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

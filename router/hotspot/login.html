@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RJAY WiFi · Connect</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px 14px;background:#eef3f9;color:#172334;font:16px system-ui,Arial,sans-serif}.wrap{width:min(100%,420px)}.card{padding:30px 22px;border:1px solid #fff;border-radius:28px;background:#eef3f9;box-shadow:10px 10px 24px #cbd5df,-10px -10px 24px #fff;text-align:center}.wifi{display:grid;place-items:center;width:76px;height:76px;margin:0 auto 18px;border-radius:24px;color:#08745b;box-shadow:6px 6px 13px #cbd5df,-6px -6px 13px #fff;animation:pulse 2.4s ease-in-out infinite}.wifi svg{width:38px;height:38px}h1{margin:0;font-size:26px;line-height:1.1}p{margin:8px 0 0;color:#607086;font-size:14px}.btn{display:block;width:100%;min-height:52px;margin-top:22px;padding:14px;border:0;border-radius:15px;background:#0f9675;color:#fff;font:700 16px system-ui,Arial,sans-serif;text-align:center;text-decoration:none;cursor:pointer}.btn:focus-visible,.input:focus-visible{outline:3px solid #0f9675;outline-offset:3px}.sep{display:flex;align-items:center;gap:12px;margin:25px 0;color:#607086;font-size:13px}.sep:before,.sep:after{content:"";height:1px;flex:1;background:#d5dfe9}.form{text-align:left}.form label{display:block;margin:13px 0 6px;font-size:13px;font-weight:700}.input{width:100%;min-height:50px;padding:12px 14px;border:1px solid #d5dfe9;border-radius:14px;background:#eef3f9;box-shadow:inset 3px 3px 7px #cbd5df,inset -3px -3px 7px #fff;color:#172334;font:inherit}.form .btn{margin-top:20px}.err{margin:20px 0 0;padding:12px;border-radius:12px;background:#fff1f2;color:#9f1239;text-align:left;font-size:14px}.foot{margin-top:20px;text-align:center;font-size:12px}@keyframes pulse{50%{transform:scale(1.06)}}@media(prefers-reduced-motion:reduce){.wifi{animation:none}}
+</style>
+</head>
+<body>
+<main class="wrap"><div class="card">
+<div class="wifi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg></div>
+<h1>Welcome to RJAY WiFi</h1><p>Choose a package or use your voucher.</p>
+$(if error)<div class="err" role="alert">$(error)</div>$(endif)
+<a class="btn" href="__PORTAL_URL__/?mac=$(mac-esc)&amp;link-login-only=$(link-login-only-esc)&amp;link-orig=$(link-orig-esc)">Buy internet package</a>
+<div class="sep">Have a voucher?</div>
+<form class="form" action="$(link-login-only)" method="post">
+<input type="hidden" name="dst" value="$(link-orig)"><input type="hidden" name="popup" value="true">
+<label for="voucher-code">Voucher code</label><input id="voucher-code" class="input" name="username" value="$(username)" autocomplete="username" required>
+<label for="voucher-pin">PIN</label><input id="voucher-pin" class="input" name="password" type="password" autocomplete="current-password" required>
+<button class="btn" type="submit">Connect to Wi-Fi</button>
+</form>
+<p class="foot">One voucher works on one device.</p>
+</div></main>
+</body>
+</html>

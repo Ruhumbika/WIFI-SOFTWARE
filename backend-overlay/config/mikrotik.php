@@ -1,0 +1,11 @@
+<?php
+
+return [
+    'base_url' => env('MIKROTIK_BASE_URL', 'http://10.10.1.1/rest'),
+    'username' => env('MIKROTIK_USERNAME', 'rjay-api'),
+    'password' => env('MIKROTIK_PASSWORD'),
+    'verify_tls' => filter_var(env('MIKROTIK_VERIFY_TLS', false), FILTER_VALIDATE_BOOL),
+    'hotspot_server' => env('MIKROTIK_HOTSPOT_SERVER', 'hotspot1'),
+    'address_pool' => env('MIKROTIK_ADDRESS_POOL', 'dhcp-pool'),
+    'profile_prefix' => env('MIKROTIK_PROFILE_PREFIX', 'RJAY_'),
+];
