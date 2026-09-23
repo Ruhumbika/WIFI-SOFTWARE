@@ -16,10 +16,14 @@ html.portal-page body::-webkit-scrollbar {
 }
 
 .voucher-print-sheet { display: none; }
+.voucher-preview-scroll { display: grid; gap: 16px; overflow-x: auto; padding: 4px 4px 16px; }
+.voucher-preview-page { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-content: start; gap: 2mm; width: 210mm; min-height: 297mm; padding: 8mm; background: #fff; box-shadow: 0 3px 14px rgba(0, 0, 0, .15); }
+.voucher-preview-page .wifi-ticket--compact { width: 100%; }
+@page voucherCards { size: A4; margin: 8mm; }
 @media print {
   body.voucher-printing #app { display: none !important; }
   body.voucher-printing .voucher-print-sheet { display: grid; width: 100%; gap: 6mm; background: white; color: #0f172a; }
-  body.voucher-printing .voucher-print-sheet--cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.voucher-printing .voucher-print-sheet--cards { page: voucherCards; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2mm; align-items: start; }
   body.voucher-printing .voucher-print-sheet--thermal { width: 58mm; grid-template-columns: 1fr; gap: 0; }
 }
 
@@ -331,10 +335,6 @@ textarea {
   gap: 12px;
 }
 
-.mock-button {
-  min-height: 44px;
-  white-space: nowrap;
-}
 
 .portal-success {
   width: min(100%, 520px);
@@ -459,10 +459,6 @@ textarea {
     flex-direction: column;
   }
 
-  .mock-button {
-    width: 100%;
-    min-height: 48px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

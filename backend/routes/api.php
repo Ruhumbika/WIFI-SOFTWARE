@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\PublicPortalController;
 use App\Http\Controllers\RouterSetupController;
 use App\Http\Controllers\SnippeWebhookController;
+use App\Http\Controllers\ClickPesaWebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -17,11 +18,11 @@ Route::prefix('public')->group(function () {
     Route::post('/orders/{uuid}/resend-push', [PublicPortalController::class, 'resendPush'])->middleware('throttle:6,1');
     Route::get('/orders/{uuid}', [PublicPortalController::class, 'showOrder']);
     Route::get('/orders/{uuid}/connection', [PublicPortalController::class, 'connectionStatus']);
-    Route::post('/orders/{uuid}/mock-complete', [PublicPortalController::class, 'mockComplete']);
     Route::post('/orders/{uuid}/prepare-connection', [PublicPortalController::class, 'prepareConnection']);
 });
 
 Route::post('/webhooks/snippe', SnippeWebhookController::class);
+Route::post('/webhooks/clickpesa', ClickPesaWebhookController::class);
 
 Route::middleware('admin.token')->prefix('admin')->group(function () {
     Route::get('/router/advanced/permission', [AdvancedAccessController::class, 'permission']);

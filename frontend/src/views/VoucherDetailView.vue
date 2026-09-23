@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AdminShell from '../components/AdminShell.vue'
 import VoucherCard from '../components/vouchers/VoucherCard.vue'
@@ -18,9 +18,14 @@ const notice = ref('')
 const printTemplate = ref<'cards' | 'thermal'>('cards')
 const nowTick = ref(Date.now())
 let clockTimer: number | undefined
+const displayStatus = computed(() => {
+  const expiry = Date.parse(voucher.value?.expires_at || '')
+  return voucher.value?.status === 'active' && Number.isFinite(expiry) && expiry <= nowTick.value ? 'expired' : voucher.value?.status
+})
+const canPrint = computed(() => ['ready', 'active'].includes(displayStatus.value))
 function finishPrint() { document.body.classList.remove('voucher-printing') }
 async function printVoucher() {
-  if (!voucher.value || !['ready', 'active'].includes(voucher.value.status)) return
+  if (!voucher.value || !canPrint.value) return
   await nextTick()
   document.body.classList.add('voucher-printing')
   window.print()
@@ -62,7 +67,7 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
     <div v-if="notice" class="alert alert-info" role="status">{{ notice }}</div>
     <template v-if="voucher">
       <div class="row g-3">
-        <div class="col-lg-5"><VoucherCard :voucher="voucher" :plan="voucher.plan" :now-ms="nowTick" /></div>
+        <div class="col-lg-5"><VoucherCard :voucher="{ ...voucher, status: displayStatus }" :plan="voucher.plan" :now-ms="nowTick" /></div>
         <div class="col-lg-7">
           <section class="card p-3 mb-3">
             <h2 class="h5">Customer and payment</h2>
@@ -77,7 +82,7 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
             <p><strong>Provisioned:</strong> {{ formatDate(voucher.provisioned_at, 'Pending') }}</p>
             <p><strong>First login:</strong> {{ formatDate(voucher.activated_at, 'Not yet') }}</p>
             <p><strong>Expiry:</strong> {{ formatDate(voucher.expires_at, 'Not yet started') }}</p>
-            <p v-if="voucher.status === 'active'"><strong>Package time left:</strong> {{ voucherTimeLeft(voucher.expires_at, nowTick) || 'Unavailable' }}<span v-if="voucherTimeLeft(voucher.expires_at, nowTick) === 'Time ended'"> · awaiting sync</span></p>
+            <p v-if="voucher.status === 'active'"><strong>Package time left:</strong> {{ voucherTimeLeft(voucher.expires_at, nowTick) || 'Unavailable' }}<span v-if="displayStatus === 'expired'"> · awaiting sync</span></p>
             <p><strong>Total online time:</strong> {{ voucher.router_total_uptime || 'Unavailable' }}<small v-if="voucher.router_checked_at" class="d-block text-secondary">Router checked {{ formatDate(voucher.router_checked_at) }}</small></p>
             <p><strong>Current session uptime:</strong> {{ voucher.sessions?.find((session: any) => !session.ended_at)?.uptime || 'No active session recorded' }}</p>
             <p><strong>Session last synced:</strong> {{ formatDate(voucher.sessions?.find((session: any) => !session.ended_at)?.last_seen_at, 'Not active') }}</p>
@@ -98,17 +103,17 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
           </section>
           <div class="d-flex flex-wrap gap-2">
             <button v-if="voucher.status === 'provision_pending'" class="btn btn-primary" :disabled="busy" @click="retry">Retry provisioning</button>
-            <button v-if="['ready','active'].includes(voucher.status)" class="btn btn-outline-danger" :disabled="busy" @click="disable">Disable voucher</button>
-            <select v-if="['ready', 'active'].includes(voucher.status)" v-model="printTemplate" class="form-select w-auto" aria-label="Ticket template"><option value="cards">Premium card</option><option value="thermal">58 mm receipt</option></select>
-            <button v-if="['ready', 'active'].includes(voucher.status)" class="btn btn-outline-secondary" @click="printVoucher">Print ticket</button>
+            <button v-if="canPrint" class="btn btn-outline-danger" :disabled="busy" @click="disable">Disable voucher</button>
+            <select v-if="canPrint" v-model="printTemplate" class="form-select w-auto" aria-label="Ticket template"><option value="cards">A4 · 30 tickets</option><option value="thermal">58 mm receipt</option></select>
+            <button v-if="canPrint" class="btn btn-outline-secondary" @click="printVoucher">Print ticket</button>
             <router-link v-if="voucher.status === 'active'" class="btn btn-outline-secondary" to="/admin/sessions">View sessions</router-link>
-            <button v-if="voucher.status === 'expired'" class="btn btn-outline-primary" @click="router.push('/admin/vouchers')">Generate new voucher</button>
+            <button v-if="displayStatus === 'expired'" class="btn btn-outline-primary" @click="router.push('/admin/vouchers')">Generate new voucher</button>
           </div>
           <details v-if="voucher.provision_error" class="mt-3"><summary>Provisioning details</summary><pre class="text-wrap">{{ voucher.provision_error }}</pre></details>
         </div>
       </div>
-      <Teleport to="body"><section v-if="['ready', 'active'].includes(voucher.status)" class="voucher-print-sheet" :class="`voucher-print-sheet--${printTemplate}`" aria-label="Ticket to print">
-        <PrintableVoucherTicket :ticket="voucher" :thermal="printTemplate === 'thermal'" />
+      <Teleport to="body"><section v-if="canPrint" class="voucher-print-sheet" :class="`voucher-print-sheet--${printTemplate}`" aria-label="Ticket to print">
+        <PrintableVoucherTicket :ticket="voucher" :compact="printTemplate === 'cards'" :thermal="printTemplate === 'thermal'" />
       </section></Teleport>
     </template>
   </AdminShell>

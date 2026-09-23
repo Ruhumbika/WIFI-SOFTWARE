@@ -8,7 +8,7 @@ This is the mobile-first MVP for the supplied MikroTik hAP ac lite / RouterOS 7.
 - UI: Bootstrap 5.3 + Bootstrap Icons + project CSS
 - State: component-local reactive state; admin auth token in `localStorage` (no Pinia yet)
 - Backend: Laravel 12
-- Payment: Snippe adapter with mock/live modes
+- Payment: Snippe Mobile Money API with signed webhooks
 - Router: RouterOS REST API
 
 ## Implemented
@@ -23,7 +23,6 @@ This is the mobile-first MVP for the supplied MikroTik hAP ac lite / RouterOS 7.
 - One-device enforcement using `shared-users=1` plus first-device MAC binding.
 - Validity starts at first successful HotSpot login; app records wall-clock expiry.
 - Snippe idempotency + signed webhook verification.
-- Mock payment mode for end-to-end testing before live API activation.
 
 ## 1. Existing install: apply updated source
 Install PHP/JS dependencies only if they are not already present:
@@ -133,25 +132,16 @@ Set `ADMIN_EMAIL` and a unique `ADMIN_PASSWORD` in `backend/.env` before the fir
 | Boom 3 Days | 4,000 TZS | 3 days | 4M/4M |
 | Boom 7 Days | 7,000 TZS | 7 days | 4M/4M |
 
-## 5. Payment testing
-Until the paid Snippe API access is activated:
+## 5. Snippe payments
+Configure the backend with an active Snippe account and a public HTTPS webhook URL before accepting purchases:
 
 ```env
-SNIPPE_MODE=mock
-```
-
-A customer can purchase a package and use **Simulate success**. Laravel then creates the real voucher and provisions it to the real MikroTik.
-
-When Snippe access is active:
-
-```env
-SNIPPE_MODE=live
 SNIPPE_API_KEY=...
 SNIPPE_WEBHOOK_SECRET=...
 SNIPPE_WEBHOOK_URL=https://YOUR-PUBLIC-DOMAIN/api/webhooks/snippe
 ```
 
-Never place Snippe or MikroTik secrets in Vue or Git.
+Customers enter their mobile number, full name and email. Snippe sends a Mobile Money prompt; a signed `payment.completed` webhook confirms the amount before Laravel provisions a voucher. Missing configuration prevents payment requests. Never place Snippe or MikroTik secrets in Vue or Git.
 
 ## 6. Voucher UI integration
 Reusable component:

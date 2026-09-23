@@ -208,6 +208,7 @@ class PrepareConnectionTest extends TestCase
         $plan = $this->paidOrder()->plan;
         $created = $this->postJson('/api/public/orders', [
             'plan_id' => $plan->id, 'phone' => '0700000002',
+            'name' => 'Test Customer', 'email' => 'customer@example.test',
         ])->assertCreated()->json();
 
         $this->getJson('/api/public/orders/'.$created['uuid'], [

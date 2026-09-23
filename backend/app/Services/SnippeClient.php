@@ -9,43 +9,27 @@ use RuntimeException;
 
 class SnippeClient
 {
-    public function isMock(): bool
-    {
-        return config('snippe.mode') !== 'live';
-    }
-
     public function createPayment(Order $order, Payment $payment): array
     {
-        if ($this->isMock()) {
-            return [
-                'status' => 'success',
-                'code' => 201,
-                'data' => [
-                    'reference' => 'mock_'.$payment->uuid,
-                    'status' => 'pending',
-                    'payment_type' => 'mobile',
-                ],
-            ];
-        }
-
-        $apiKey = (string) config('snippe.api_key');
-        if ($apiKey === '') {
-            throw new RuntimeException('SNIPPE_API_KEY is required in live mode.');
+        $apiKey = $this->apiKey();
+        $webhookUrl = (string) config('snippe.webhook_url');
+        if ((string) config('snippe.webhook_secret') === '' || !filter_var($webhookUrl, FILTER_VALIDATE_URL) || !str_starts_with($webhookUrl, 'https://')) {
+            throw new RuntimeException('A Snippe webhook secret and HTTPS webhook URL are required.');
         }
 
         $name = trim((string) $order->customer_name);
-        $parts = preg_split('/\s+/', $name ?: 'Hotspot Customer', 2);
-        $first = $parts[0] ?: 'Hotspot';
-        $last = $parts[1] ?? 'Customer';
+        $parts = preg_split('/\s+/', $name, 2);
+        if (count($parts) < 2 || !$parts[1] || !filter_var($order->customer_email, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException('Customer name and email are required for Snippe payments.');
+        }
         $digits = preg_replace('/\D+/', '', $order->customer_phone);
-        $email = $order->customer_email ?: $digits.'@customer.rjay.local';
 
         $payload = [
             'payment_type' => 'mobile',
             'details' => ['amount' => $order->amount, 'currency' => 'TZS'],
             'phone_number' => $digits,
-            'customer' => ['firstname' => $first, 'lastname' => $last, 'email' => $email],
-            'webhook_url' => config('snippe.webhook_url'),
+            'customer' => ['firstname' => $parts[0], 'lastname' => $parts[1], 'email' => $order->customer_email],
+            'webhook_url' => $webhookUrl,
             'metadata' => ['order_id' => $order->order_number, 'order_uuid' => $order->uuid],
         ];
 
@@ -60,10 +44,8 @@ class SnippeClient
 
     public function getPayment(string $reference): array
     {
-        if ($this->isMock()) return ['data' => ['reference' => $reference, 'status' => 'pending']];
-
         return Http::acceptJson()
-            ->withToken((string) config('snippe.api_key'))
+            ->withToken($this->apiKey())
             ->timeout((int) config('snippe.timeout'))
             ->get(rtrim(config('snippe.base_url'), '/').'/v1/payments/'.rawurlencode($reference))
             ->throw()->json();
@@ -71,10 +53,8 @@ class SnippeClient
 
     public function pushPayment(string $reference): array
     {
-        if ($this->isMock()) return ['data' => ['reference' => $reference, 'status' => 'pending']];
-
         return Http::acceptJson()
-            ->withToken((string) config('snippe.api_key'))
+            ->withToken($this->apiKey())
             ->timeout((int) config('snippe.timeout'))
             ->post(rtrim(config('snippe.base_url'), '/').'/v1/payments/'.rawurlencode($reference).'/push')
             ->throw()->json();
@@ -82,10 +62,6 @@ class SnippeClient
 
     public function verifyWebhook(string $rawBody, ?string $timestamp, ?string $signature): array
     {
-        if ($this->isMock()) {
-            return json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
-        }
-
         $secret = (string) config('snippe.webhook_secret');
         if ($secret === '' || !$timestamp || !$signature) {
             throw new RuntimeException('Missing Snippe webhook signature configuration.');
@@ -101,5 +77,12 @@ class SnippeClient
         }
 
         return json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    private function apiKey(): string
+    {
+        $key = (string) config('snippe.api_key');
+        if ($key === '') throw new RuntimeException('SNIPPE_API_KEY is required.');
+        return $key;
     }
 }

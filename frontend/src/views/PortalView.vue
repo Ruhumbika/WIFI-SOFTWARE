@@ -25,20 +25,16 @@ const phoneInput = ref<HTMLInputElement | null>(null);
 const phone = ref("");
 const checkoutStep = ref("");
 const checkoutSubmitted = ref(false);
-const name = ref("");
-const email = ref("");
 const loading = ref(false);
 const booting = ref(true);
 const restoreFailed = ref(false);
 const restoreMessage = ref("");
 const error = ref("");
 const order = ref<any>(null);
-const mock = ref(false);
 const timer = ref<number | null>(null);
 const connectionTimer = ref<number | null>(null);
 const clockTimer = ref<number | null>(null);
 const nowTick = ref(Date.now());
-const receiptOpen = ref(false);
 const connectionState = ref<ConnectionState>("idle");
 const connectionBusy = ref(false);
 const refreshBusy = ref(false);
@@ -75,7 +71,6 @@ onMounted(async () => {
       order.value = (
         await api.get(`/public/orders/${encodeURIComponent(savedOrder)}`)
       ).data;
-      mock.value = Boolean(order.value.mock);
 
       if (params.get("connected") === "1") {
         connectionState.value = "checking";
@@ -97,8 +92,8 @@ onMounted(async () => {
     } catch (e: any) {
       restoreFailed.value = true;
       restoreMessage.value = [403, 404].includes(e.response?.status)
-        ? "We could not verify this purchase on this device. Contact the administrator before paying again."
-        : "We could not check your purchase right now. Your payment details are saved on this device.";
+        ? "Hatujaweza kuthibitisha malipo kwenye kifaa hiki. Wasiliana na msimamizi kabla ya kulipa tena."
+        : "Hatujaweza kukagua malipo sasa. Taarifa za malipo zimehifadhiwa kwenye kifaa hiki.";
     }
   }
 
@@ -119,8 +114,9 @@ function retryRestore() {
 async function choosePlan(plan: any) {
   selected.value = plan;
   error.value = "";
+  phone.value = "";
   checkoutSubmitted.value = false;
-  checkoutStep.value = "Enter your Mobile Money number";
+  checkoutStep.value = "Weka namba ya malipo";
   await nextTick();
   if (!checkoutDialog.value?.open) checkoutDialog.value?.showModal();
   phoneInput.value?.focus();
@@ -141,25 +137,21 @@ function onPhoneInput(event: Event) {
     (_, a, b, c, d) => [a, b, c, d].filter(Boolean).join(" "),
   );
   input.value = phone.value;
-  if (normalizedPhone.value && !checkoutSubmitted.value) {
-    checkoutSubmitted.value = true;
-    void buy();
-  }
+  if (phoneValid.value && !checkoutSubmitted.value) void buy();
 }
 
 async function buy() {
-  if (!selected.value || loading.value || !phoneValid.value) return;
+  if (!selected.value || loading.value || checkoutSubmitted.value || !phoneValid.value) return;
 
+  checkoutSubmitted.value = true;
   loading.value = true;
   error.value = "";
-  checkoutStep.value = "Creating your order…";
+  checkoutStep.value = "Tunaandaa malipo…";
 
   try {
     const created = await api.post("/public/orders", {
       plan_id: selected.value.id,
       phone: normalizedPhone.value,
-      name: name.value || null,
-      email: email.value || null,
       device_mac: deviceMac || null,
     });
 
@@ -167,14 +159,19 @@ async function buy() {
     sessionStorage.setItem(orderStorageKey, order.value.uuid);
     if (order.value.access_token)
       sessionStorage.setItem("rjay_order_token", order.value.access_token);
-    checkoutStep.value = "Sending payment request…";
+    checkoutStep.value = "Tunatuma ombi kwenye simu…";
     await requestPayment();
   } catch (e: any) {
+    if (!order.value) checkoutSubmitted.value = false;
     if (order.value) startPoll();
-    error.value =
-      e.response?.data?.message ||
-      "We could not start your purchase. Please try again.";
-    checkoutStep.value = "Could not send the request";
+    error.value = e.response?.status === 422
+      ? "Hakiki namba yako ya simu."
+      : e.response?.status === 502
+        ? "Huduma ya malipo haipatikani sasa. Jaribu baadaye."
+        : order.value
+          ? "Imeshindikana kutuma ombi. Jaribu tena baada ya muda."
+          : "Imeshindikana kuanza malipo. Jaribu tena.";
+    checkoutStep.value = "Ombi halijatumwa";
   } finally {
     loading.value = false;
   }
@@ -185,7 +182,6 @@ async function requestPayment() {
   const response = await api.post(
     `/public/orders/${encodeURIComponent(order.value.uuid)}/pay`,
   );
-  mock.value = Boolean(response.data.mock);
   order.value = response.data.order;
   startPoll();
 }
@@ -196,8 +192,13 @@ async function continuePayment() {
   error.value = "";
   try {
     await requestPayment();
-  } catch {
-    error.value = "Payment request could not be sent. Please try again.";
+  } catch (e: any) {
+    if (e.response?.status === 409) await refresh();
+    else error.value = e.response?.status === 502
+      ? "Huduma ya malipo haipatikani sasa. Jaribu baadaye."
+      : e.response?.status === 429
+        ? "Ombi jingine linaendelea. Subiri kidogo."
+        : "Imeshindikana kutuma ombi. Jaribu tena baada ya muda.";
   } finally {
     loading.value = false;
   }
@@ -225,9 +226,9 @@ async function resendPush() {
       )
     ).data;
   } catch (e: any) {
-    error.value =
-      e.response?.data?.message ||
-      "Could not resend the request. Please try again.";
+    error.value = e.response?.status === 429
+      ? "Subiri muda wa kusubiri umalizike."
+      : "Ombi halijatumwa tena. Hakiki hali ya malipo kisha ujaribu tena.";
     await refresh();
   } finally {
     resendBusy.value = false;
@@ -302,7 +303,6 @@ async function refresh() {
     order.value = (
       await api.get(`/public/orders/${encodeURIComponent(order.value.uuid)}`)
     ).data;
-    mock.value = Boolean(order.value.mock);
 
     if (
       new URLSearchParams(location.search).get("connected") === "1" &&
@@ -353,22 +353,6 @@ async function refresh() {
 function stopPoll() {
   if (timer.value) clearInterval(timer.value);
   timer.value = null;
-}
-
-async function simulate() {
-  if (!order.value || loading.value) return;
-  loading.value = true;
-  try {
-    await api.post(
-      `/public/orders/${encodeURIComponent(order.value.uuid)}/mock-complete`,
-    );
-    await refresh();
-  } catch {
-    error.value =
-      "Payment confirmation is unavailable. Your order is still saved.";
-  } finally {
-    loading.value = false;
-  }
 }
 
 async function prepareConnection(automatic = false) {
@@ -539,6 +523,10 @@ const paymentRequestMissing = computed(() =>
     order.value && !paid.value && (!order.value.payment || paymentFailed.value),
   ),
 );
+const paymentAwaitingPin = computed(() =>
+  !paymentRequestMissing.value && !paymentFailed.value &&
+  pushSecondsLeft.value !== null && pushSecondsLeft.value > 0,
+);
 
 const selectedPrice = computed(() =>
   Number(selected.value?.price || 0).toLocaleString(),
@@ -572,19 +560,21 @@ const connectionProblem = computed(() =>
 );
 
 const paymentTitle = computed(() => {
-  if (paymentFailed.value) return "Payment not completed";
-  if (paymentRequestMissing.value) return "Ready for payment";
-  if (pushSecondsLeft.value === 0) return "Request timed out";
-  return "Check your phone";
+  if (paymentFailed.value) return "Malipo hayajakamilika";
+  if (paymentRequestMissing.value) return loading.value ? "Tunatuma ombi…" : "Ombi halijatumwa";
+  if (pushSecondsLeft.value === 0) return "Bado hatujapata uthibitisho";
+  if (paymentAwaitingPin.value) return "Weka PIN kwenye simu yako";
+  return "Tunakagua malipo";
 });
 
 const paymentMessage = computed(() => {
-  if (paymentFailed.value) return "The payment did not complete.";
-  if (paymentRequestMissing.value)
-    return "Send the Mobile Money request again.";
-  if (pushSecondsLeft.value === 0)
-    return "We have not received payment confirmation yet.";
-  return "Approve the Mobile Money request on your phone.";
+  if (paymentFailed.value) return "Ombi la awali limeshindwa. Unaweza kujaribu tena.";
+  if (paymentRequestMissing.value) return loading.value
+    ? "Subiri ombi lifike kwenye simu yako."
+    : "Bonyeza kitufe hapa chini upokee ombi la kuweka PIN.";
+  if (pushSecondsLeft.value === 0) return "Kagua simu yako. Kama hujalipa, unaweza kutuma ombi tena.";
+  if (paymentAwaitingPin.value) return "Thibitisha ombi la malipo kwenye simu yako.";
+  return "Subiri hali ya malipo ithibitishwe.";
 });
 
 const connectionTitle = computed(() => {
@@ -681,8 +671,8 @@ const browsingDestination = computed(() => {
           aria-live="polite"
         >
           <div class="portal-loader" aria-hidden="true"></div>
-          <h1>Restoring your purchase</h1>
-          <p>Checking your latest payment and internet access…</p>
+          <h1>Tunakagua malipo yako</h1>
+          <p>Tafadhali subiri…</p>
         </section>
 
         <section
@@ -693,10 +683,10 @@ const browsingDestination = computed(() => {
           <div class="state-icon warning">
             <i class="bi bi-exclamation-lg" aria-hidden="true"></i>
           </div>
-          <h1>Could not check your purchase</h1>
+          <h1>Hatujaweza kukagua malipo</h1>
           <p>{{ restoreMessage }}</p>
           <button class="primary-action mt-4" @click="retryRestore">
-            Try again
+            Jaribu tena
           </button>
         </section>
 
@@ -709,21 +699,21 @@ const browsingDestination = computed(() => {
               <AnimatedWifi busy />
             </div>
             <span class="portal-eyebrow">RJAY WIFI</span>
-            <h1>Get connected</h1>
-            <p>Choose a package and pay on your phone.</p>
+            <h1>Chagua kifurushi</h1>
+            <p>Lipia kwa namba yako ya simu.</p>
           </div>
 
           <div
             v-if="!plans.length && !error"
             class="plan-list"
-            aria-label="Loading internet packages"
+            aria-label="Tunapakia vifurushi"
           >
             <div v-for="n in 3" :key="n" class="plan-skeleton">
               <span></span><span></span><span></span>
             </div>
           </div>
 
-          <div v-else class="plan-list" aria-label="Internet packages">
+          <div v-else class="plan-list" aria-label="Vifurushi vya intaneti">
             <button
               v-for="plan in plans"
               :key="plan.id"
@@ -733,14 +723,14 @@ const browsingDestination = computed(() => {
                 selected: selected?.id === plan.id,
                 recommended: plan.recommended,
               }"
-              :aria-label="`${plan.name}, TZS ${Number(plan.price).toLocaleString()}. Enter phone number`"
+              :aria-label="`${plan.name}, TZS ${Number(plan.price).toLocaleString()}. Weka namba ya malipo`"
               @click="choosePlan(plan)"
             >
               <div class="plan-option__main">
                 <div class="plan-option__title-row">
                   <strong>{{ plan.name }}</strong>
                   <span v-if="plan.recommended" class="plan-option__recommended"
-                    >Recommended</span
+                    >Pendekezo</span
                   >
                 </div>
                 <div class="plan-option__meta">
@@ -784,7 +774,6 @@ const browsingDestination = computed(() => {
                 class="d-flex justify-content-between align-items-start gap-3 mb-3"
               >
                 <div>
-                  <div class="checkout-eyebrow">Mobile Money</div>
                   <h2 id="checkout-title" class="h4 mb-1">
                     {{ selected?.name }}
                   </h2>
@@ -796,15 +785,14 @@ const browsingDestination = computed(() => {
                 <button
                   type="button"
                   class="btn-close"
-                  aria-label="Close"
+                  aria-label="Funga"
                   :disabled="loading"
                   @click="closeCheckout"
                 ></button>
               </div>
-              <form @submit.prevent>
+              <form @submit.prevent="buy">
                 <div class="mb-3">
-                  <label class="form-label" for="customer-phone"
-                    >Mobile Money number</label
+                  <label class="form-label" for="customer-phone">Namba ya kulipia</label
                   ><input
                     id="customer-phone"
                     ref="phoneInput"
@@ -817,43 +805,12 @@ const browsingDestination = computed(() => {
                     required
                     placeholder="255 787 550 399"
                     aria-describedby="phone-help"
-                    :readonly="loading || checkoutSubmitted"
+                    :disabled="loading || checkoutSubmitted"
                   /><small id="phone-help" class="text-secondary">{{
                     phone.length && !phoneValid
-                      ? "Enter a valid Tanzania mobile number."
-                      : "Enter your number to get the payment prompt."
+                      ? "Weka namba sahihi ya simu ya Tanzania."
+                      : "Ombi litatumwa namba ikikamilika."
                   }}</small>
-                </div>
-                <button
-                  type="button"
-                  class="btn btn-link px-0 mb-2"
-                  :aria-expanded="receiptOpen"
-                  @click="receiptOpen = !receiptOpen"
-                >
-                  {{
-                    receiptOpen ? "Hide receipt details" : "Add receipt details"
-                  }}
-                </button>
-                <div v-if="receiptOpen" class="row g-2 mb-3">
-                  <div class="col-sm-6">
-                    <label class="form-label" for="customer-name">Name</label
-                    ><input
-                      id="customer-name"
-                      v-model="name"
-                      class="form-control"
-                      autocomplete="name"
-                    />
-                  </div>
-                  <div class="col-sm-6">
-                    <label class="form-label" for="customer-email">Email</label
-                    ><input
-                      id="customer-email"
-                      v-model="email"
-                      class="form-control"
-                      type="email"
-                      autocomplete="email"
-                    />
-                  </div>
                 </div>
                 <div v-if="error" class="alert alert-danger" role="alert">
                   {{ error }}
@@ -876,12 +833,10 @@ const browsingDestination = computed(() => {
                   type="button"
                   class="btn btn-outline-primary mt-2"
                   @click="
-                    order
-                      ? continuePayment()
-                      : ((checkoutSubmitted = true), buy())
+                    order ? continuePayment() : buy()
                   "
                 >
-                  Try again
+                  Jaribu tena
                 </button>
               </form>
             </div>
@@ -898,52 +853,35 @@ const browsingDestination = computed(() => {
           <div
             class="state-icon"
             :class="[
-              paymentFailed ? 'warning' : 'phone',
-              { 'is-waiting': !paymentFailed && pushSecondsLeft !== 0 },
+              paymentFailed || paymentRequestMissing ? 'warning' : 'phone',
+              { 'is-waiting': paymentAwaitingPin },
             ]"
           >
             <i
               :class="
-                paymentFailed ? 'bi bi-exclamation-lg' : 'bi bi-phone-vibrate'
+                paymentFailed || paymentRequestMissing
+                  ? 'bi bi-exclamation-lg'
+                  : 'bi bi-phone-vibrate'
               "
               aria-hidden="true"
             ></i>
           </div>
-          <div class="state-eyebrow">
-            {{ order?.plan?.name || selected?.name }}
+          <div class="payment-summary">
+            <span>{{ order?.plan?.name || selected?.name }}</span>
+            <strong>TZS {{ Number(order?.amount || selected?.price || 0).toLocaleString() }}</strong>
           </div>
           <h1>{{ paymentTitle }}</h1>
           <p>{{ paymentMessage }}</p>
-          <div class="state-amount">
-            TZS
-            {{ Number(order?.amount || selected?.price || 0).toLocaleString() }}
-          </div>
-
           <div
-            v-if="!paymentFailed && pushSecondsLeft !== 0"
-            class="waiting-indicator"
-            aria-label="Waiting for payment confirmation"
-          >
-            <span></span><span></span><span></span>
-          </div>
-          <div
-            v-if="
-              !paymentFailed &&
-              !paymentRequestMissing &&
-              pushSecondsLeft !== null
-            "
-            class="mt-3"
+            v-if="paymentAwaitingPin || (!paymentFailed && !paymentRequestMissing && pushSecondsLeft === 0)"
+            class="payment-next-step"
             role="status"
           >
-            <p v-if="pushSecondsLeft > 0" class="mb-1">
-              Waiting for PIN confirmation · {{ pushCountdown }}
-            </p>
-            <p v-else class="mb-2">
-              The 5-minute wait has ended. Check your phone or send the request
-              again.
+            <p v-if="paymentAwaitingPin" class="mb-0">
+              Tunasubiri uthibitisho · {{ pushCountdown }}
             </p>
             <button
-              v-if="pushSecondsLeft === 0"
+              v-else
               type="button"
               class="secondary-action"
               :disabled="resendBusy"
@@ -955,7 +893,7 @@ const browsingDestination = computed(() => {
                 aria-hidden="true"
               ></span>
               {{
-                resendBusy ? "Checking payment…" : "Resend push notification"
+                resendBusy ? "Tunakagua malipo…" : "Tuma ombi tena"
               }}
             </button>
           </div>
@@ -976,26 +914,18 @@ const browsingDestination = computed(() => {
             ></span>
             {{
               loading
-                ? "Sending request…"
+                ? "Tunatuma ombi…"
                 : paymentFailed
-                  ? "Retry payment"
-                  : "Continue payment"
+                  ? "Jaribu tena"
+                  : "Tuma ombi la PIN"
             }}
-          </button>
-          <button
-            v-if="mock && !paid"
-            class="secondary-action"
-            @click="simulate"
-          >
-            <i class="bi bi-lightning-charge" aria-hidden="true"></i>Simulate
-            payment success
           </button>
           <button
             v-if="paymentFailed"
             class="text-action"
             @click="startNewPurchase"
           >
-            Choose another package
+            Chagua kifurushi kingine
           </button>
         </section>
 
@@ -1007,12 +937,9 @@ const browsingDestination = computed(() => {
           <div class="state-icon preparing is-waiting">
             <i class="bi bi-gear" aria-hidden="true"></i>
           </div>
-          <div class="state-eyebrow">Payment received</div>
-          <h1>Preparing your internet</h1>
-          <p>
-            Payment received. Setting up your Wi-Fi access. This should finish
-            within 6 minutes.
-          </p>
+          <div class="state-eyebrow">Malipo yamepokelewa</div>
+          <h1>Tunaandaa intaneti yako</h1>
+          <p>Tafadhali subiri, inaweza kuchukua hadi dakika 6.</p>
           <div class="connection-progress"><span></span></div>
         </section>
 
@@ -1024,19 +951,19 @@ const browsingDestination = computed(() => {
           <div class="state-icon warning">
             <i class="bi bi-exclamation-lg" aria-hidden="true"></i>
           </div>
-          <div class="state-eyebrow">Payment received</div>
+          <div class="state-eyebrow">Malipo yamepokelewa</div>
           <h1>
             {{
               voucherUnavailable
-                ? "Wi-Fi access unavailable"
-                : "Setup is taking too long"
+                ? "Huduma ya Wi-Fi haipatikani sasa"
+                : "Maandalizi yanachukua muda"
             }}
           </h1>
           <p>
             {{
               voucherUnavailable
-                ? "This voucher is no longer available. Please contact the administrator."
-                : "Your payment is confirmed, but internet access was not ready within 6 minutes. You do not need to pay again."
+                ? "Voucher hii haipatikani tena. Tafadhali wasiliana na msimamizi."
+                : "Malipo yamethibitishwa. Intaneti haijawa tayari; usilipe tena."
             }}
           </p>
           <button
@@ -1049,7 +976,7 @@ const browsingDestination = computed(() => {
               class="spinner-border spinner-border-sm"
               aria-hidden="true"
             ></span>
-            {{ refreshBusy ? "Checking…" : "Check status again" }}
+            {{ refreshBusy ? "Tunakagua…" : "Kagua tena" }}
           </button>
           <p v-if="error" class="portal-alert danger" role="alert">
             {{ error }}
@@ -1174,8 +1101,8 @@ const browsingDestination = computed(() => {
       </main>
 
       <footer class="portal-footer">
-        <i class="bi bi-shield-check" aria-hidden="true"></i>Secure payment ·
-        One device per voucher
+        <i class="bi bi-shield-check" aria-hidden="true"></i>Malipo salama ·
+        Voucher moja kwa kifaa kimoja
       </footer>
     </div>
   </div>
@@ -1795,30 +1722,23 @@ v .plan-option:not(:active):not(:focus-visible) .plan-option__price i {
   background: #fff7ed;
   color: #c2410c;
 }
-.state-amount {
-  margin-top: 20px;
-  font-size: 1.5rem;
-  font-weight: 900;
-  letter-spacing: -0.04em;
-}
-.waiting-indicator {
+.payment-summary {
   display: flex;
   justify-content: center;
-  gap: 6px;
-  margin-top: 24px;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
-.waiting-indicator span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: waiting 1.15s ease-in-out infinite;
+.payment-summary strong {
+  color: var(--ink);
 }
-.waiting-indicator span:nth-child(2) {
-  animation-delay: 0.15s;
+.payment-next-step {
+  margin-top: 22px;
 }
-.waiting-indicator span:nth-child(3) {
-  animation-delay: 0.3s;
+.payment-next-step p {
+  font-size: 0.85rem;
 }
 .state-footnote {
   margin-top: 18px;

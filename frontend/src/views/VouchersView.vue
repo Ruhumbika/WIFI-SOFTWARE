@@ -32,9 +32,21 @@ const printTitle = ref('RJAY WiFi');
 const printWifiName = ref('');
 const printInstructions = ref('Connect to the Wi-Fi and enter this code on the login page.');
 const printShowPrice = ref(true);
-const printableRows = computed(() => rows.value.filter(row => ['ready', 'active'].includes(row.status)));
-const ticketsToPrint = computed(() => selectedIds.value.length ? printableRows.value.filter(row => selectedIds.value.includes(row.id)) : generatedTickets.value.filter(row => ['ready', 'active'].includes(row.status)));
+const printShowDetails = ref(false);
+const printShowInstructions = ref(false);
+const printShowActivation = ref(false);
+function displayStatus(voucher: any): string {
+  const expiry = Date.parse(voucher.expires_at || '');
+  return voucher.status === 'active' && Number.isFinite(expiry) && expiry <= nowTick.value ? 'expired' : voucher.status;
+}
+function canPrint(voucher: any): boolean { return ['ready', 'active'].includes(displayStatus(voucher)); }
+const printableRows = computed(() => rows.value.filter(canPrint));
+const ticketsToPrint = computed(() => selectedIds.value.length ? printableRows.value.filter(row => selectedIds.value.includes(row.id)) : generatedTickets.value.filter(canPrint));
 const previewTicket = computed(() => ticketsToPrint.value[0] ?? printableRows.value[0] ?? null);
+const previewPages = computed(() => {
+  const tickets = ticketsToPrint.value.length ? ticketsToPrint.value : previewTicket.value ? [previewTicket.value] : [];
+  return Array.from({ length: Math.ceil(tickets.length / 30) }, (_, page) => tickets.slice(page * 30, (page + 1) * 30));
+});
 
 function toggleSelection(id: number) {
   selectedIds.value = selectedIds.value.includes(id) ? selectedIds.value.filter(value => value !== id) : [...selectedIds.value, id];
@@ -53,7 +65,10 @@ async function printTickets() {
   window.print();
 }
 
-onMounted(() => { window.addEventListener('afterprint', finishPrint); clockTimer = window.setInterval(() => { nowTick.value = Date.now(); }, 1000); });
+onMounted(() => { window.addEventListener('afterprint', finishPrint); clockTimer = window.setInterval(() => {
+  nowTick.value = Date.now();
+  if (status.value === 'active' && !loading.value && rows.value.some(row => displayStatus(row) === 'expired')) load();
+}, 1000); });
 onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (clockTimer) clearInterval(clockTimer); finishPrint(); });
 
 async function load() {
@@ -163,30 +178,40 @@ onMounted(load);
     <div v-if="rows.length || generatedTickets.length" class="card p-3 mb-3 d-flex flex-row flex-wrap align-items-center gap-2">
       <button type="button" class="btn btn-outline-secondary" :disabled="!printableRows.length" @click="selectPage">{{ selectedIds.length === printableRows.length && printableRows.length ? 'Clear selection' : 'Select ready tickets' }}</button>
       <label class="visually-hidden" for="voucher-print-template">Ticket template</label>
-      <select id="voucher-print-template" v-model="printTemplate" class="form-select w-auto" aria-label="Ticket template"><option value="cards">Premium A4 cards</option><option value="thermal">58 mm receipt</option></select>
+      <select id="voucher-print-template" v-model="printTemplate" class="form-select w-auto" aria-label="Ticket template"><option value="cards">A4 · 30 tickets</option><option value="thermal">58 mm receipt</option></select>
       <button type="button" class="btn btn-primary" :disabled="!ticketsToPrint.length" @click="printTickets">Print {{ ticketsToPrint.length }} {{ selectedIds.length ? 'selected' : 'new' }} tickets</button>
       <small class="text-secondary">Use your phone or computer's print menu.</small>
       <small v-if="generatedTickets.some(ticket => !['ready', 'active'].includes(ticket.status))" class="text-warning">Tickets awaiting router provisioning cannot be printed yet.</small>
     </div>
     <details v-if="previewTicket" class="card p-3 mb-3" aria-label="Customize Wi-Fi voucher printing">
       <summary class="fw-semibold">Customize ticket and preview</summary>
-      <p class="small text-secondary mt-2">These changes affect this printout only. Voucher code, PIN, package and router settings stay as issued.</p>
+      <p class="small text-secondary mt-2">A4 preview shows the tickets selected for printing, up to 30 per page. Code, PIN and package stay as issued. Extra text may reduce how many fit on A4.</p>
       <div class="row g-2 mb-3">
         <div class="col-12 col-md-6"><label class="form-label" for="ticket-title">Ticket heading</label><input id="ticket-title" v-model.trim="printTitle" class="form-control" maxlength="40" /></div>
         <div class="col-12 col-md-6"><label class="form-label" for="ticket-wifi">Wi-Fi network name</label><input id="ticket-wifi" v-model.trim="printWifiName" class="form-control" maxlength="50" placeholder="Optional" /></div>
         <div class="col-12"><label class="form-label" for="ticket-instructions">Login instructions</label><input id="ticket-instructions" v-model.trim="printInstructions" class="form-control" maxlength="140" /></div>
-        <div class="col-12"><label><input v-model="printShowPrice" type="checkbox" class="form-check-input me-2" />Show package value</label></div>
+        <div class="col-12 d-flex flex-wrap gap-3">
+          <label><input v-model="printShowPrice" type="checkbox" class="form-check-input me-2" />Price</label>
+          <label><input v-model="printShowDetails" type="checkbox" class="form-check-input me-2" />Duration and data</label>
+          <label><input v-model="printShowInstructions" type="checkbox" class="form-check-input me-2" />Instructions</label>
+          <label><input v-model="printShowActivation" type="checkbox" class="form-check-input me-2" />Activation note</label>
+        </div>
       </div>
-      <PrintableVoucherTicket :ticket="previewTicket" :title="printTitle" :wifi-name="printWifiName" :instructions="printInstructions" :show-price="printShowPrice" :thermal="printTemplate === 'thermal'" />
+      <div v-if="printTemplate === 'cards'" class="voucher-preview-scroll" aria-label="A4 print preview">
+        <section v-for="(previewPage, pageIndex) in previewPages" :key="pageIndex" class="voucher-preview-page" :aria-label="`A4 page ${pageIndex + 1}`">
+          <PrintableVoucherTicket v-for="ticket in previewPage" :key="ticket.id" :ticket="ticket" :title="printTitle" :wifi-name="printWifiName" :instructions="printInstructions" :show-price="printShowPrice" :show-details="printShowDetails" :show-instructions="printShowInstructions" :show-activation="printShowActivation" compact />
+        </section>
+      </div>
+      <PrintableVoucherTicket v-else :ticket="previewTicket" :title="printTitle" :wifi-name="printWifiName" :instructions="printInstructions" :show-price="printShowPrice" :show-details="printShowDetails" :show-instructions="printShowInstructions" :show-activation="printShowActivation" thermal />
     </details>
     <div v-if="!loading && !rows.length" class="alert alert-info" role="status">No vouchers match these filters.</div>
 
     <div v-if="rows.length" class="mobile-ledger voucher-ledger d-lg-none" aria-label="Vouchers">
       <div class="voucher-ledger__head"><span>Voucher / package</span><span>Status</span></div>
       <div v-for="voucher in rows" :key="voucher.id" class="voucher-ledger__row">
-        <div class="voucher-ledger__main"><strong>{{ voucher.code }}</strong><small>{{ voucher.plan?.name || 'Package unavailable' }}</small><small v-if="voucher.status === 'active'">Left: {{ voucherTimeLeft(voucher.expires_at, nowTick) || 'Time unavailable' }}</small></div>
-        <span class="badge" :class="voucher.status === 'active' ? 'text-bg-success' : voucher.status === 'ready' ? 'text-bg-primary' : 'text-bg-secondary'">{{ voucher.status === 'provision_pending' ? 'Pending setup' : voucher.status }}</span>
-        <div class="voucher-ledger__actions"><label v-if="['ready', 'active'].includes(voucher.status)"><input type="checkbox" :checked="selectedIds.includes(voucher.id)" @change="toggleSelection(voucher.id)" /> Select to print</label><router-link :to="`/admin/vouchers/${voucher.id}`" class="btn btn-sm btn-outline-primary">Details</router-link><button v-if="voucher.status === 'provision_pending'" class="btn btn-sm btn-outline-secondary" @click="retry(voucher)">Retry setup</button></div>
+        <div class="voucher-ledger__main"><strong>{{ voucher.code }}</strong><small>{{ voucher.plan?.name || 'Package unavailable' }}</small><small v-if="displayStatus(voucher) === 'active'">Left: {{ voucherTimeLeft(voucher.expires_at, nowTick) || 'Time unavailable' }}</small></div>
+        <span class="badge" :class="displayStatus(voucher) === 'active' ? 'text-bg-success' : displayStatus(voucher) === 'ready' ? 'text-bg-primary' : 'text-bg-secondary'">{{ voucher.status === 'provision_pending' ? 'Pending setup' : displayStatus(voucher) }}</span>
+        <div class="voucher-ledger__actions"><label v-if="canPrint(voucher)"><input type="checkbox" :checked="selectedIds.includes(voucher.id)" @change="toggleSelection(voucher.id)" /> Select to print</label><router-link :to="`/admin/vouchers/${voucher.id}`" class="btn btn-sm btn-outline-primary">Details</router-link><button v-if="voucher.status === 'provision_pending'" class="btn btn-sm btn-outline-secondary" @click="retry(voucher)">Retry setup</button></div>
       </div>
     </div>
 
@@ -206,7 +231,7 @@ onMounted(load);
         </thead>
         <tbody>
           <tr v-for="voucher in rows" :key="voucher.id">
-            <td><input v-if="['ready', 'active'].includes(voucher.status)" type="checkbox" :checked="selectedIds.includes(voucher.id)" :aria-label="`Select ${voucher.code}`" @change="toggleSelection(voucher.id)" /></td>
+            <td><input v-if="canPrint(voucher)" type="checkbox" :checked="selectedIds.includes(voucher.id)" :aria-label="`Select ${voucher.code}`" @change="toggleSelection(voucher.id)" /></td>
             <td>
               <strong>{{ voucher.code }}</strong>
             </td>
@@ -215,7 +240,7 @@ onMounted(load);
             </td>
             <td>{{ voucher.plan?.name }}</td>
             <td>{{ voucher.device_mac || "Not bound" }}</td>
-            <td><span>{{ voucher.status }}</span><small v-if="voucher.status === 'active'" class="d-block text-secondary" style="font-variant-numeric: tabular-nums">Package left: {{ voucherTimeLeft(voucher.expires_at, nowTick) || 'Time unavailable' }}<span v-if="voucherTimeLeft(voucher.expires_at, nowTick) === 'Time ended'"> · awaiting sync</span></small></td>
+            <td><span>{{ displayStatus(voucher) }}</span><small v-if="displayStatus(voucher) === 'active'" class="d-block text-secondary" style="font-variant-numeric: tabular-nums">Package left: {{ voucherTimeLeft(voucher.expires_at, nowTick) || 'Time unavailable' }}</small></td>
             <td>{{ formatDate(voucher.activated_at, '-') }}</td>
             <td>{{ formatDate(voucher.expires_at, '-') }}</td>
             <td>
@@ -234,7 +259,7 @@ onMounted(load);
     </div>
     <nav v-if="lastPage > 1" class="d-flex justify-content-between align-items-center mt-3" aria-label="Voucher pages"><button class="btn btn-outline-secondary" :disabled="loading || page === 1" @click="changePage(page - 1)">Previous</button><span>Page {{ page }} of {{ lastPage }}</span><button class="btn btn-outline-secondary" :disabled="loading || page === lastPage" @click="changePage(page + 1)">Next</button></nav>
     <Teleport to="body"><section v-if="ticketsToPrint.length" class="voucher-print-sheet" :class="`voucher-print-sheet--${printTemplate}`" aria-label="Tickets to print">
-      <PrintableVoucherTicket v-for="ticket in ticketsToPrint" :key="ticket.id" :ticket="ticket" :title="printTitle" :wifi-name="printWifiName" :instructions="printInstructions" :show-price="printShowPrice" :thermal="printTemplate === 'thermal'" />
+      <PrintableVoucherTicket v-for="ticket in ticketsToPrint" :key="ticket.id" :ticket="ticket" :title="printTitle" :wifi-name="printWifiName" :instructions="printInstructions" :show-price="printShowPrice" :show-details="printShowDetails" :show-instructions="printShowInstructions" :show-activation="printShowActivation" :compact="printTemplate === 'cards'" :thermal="printTemplate === 'thermal'" />
     </section></Teleport>
   </AdminShell>
 </template>

@@ -24,7 +24,9 @@ class AdminController extends Controller
             'online' => HotspotSession::whereNull('ended_at')->where('last_seen_at', '>=', now()->subMinutes(2))->count(),
             'sales_today' => Payment::where('status', 'completed')->whereDate('completed_at', today())->count(),
             'revenue_today' => Payment::where('status', 'completed')->whereDate('completed_at', today())->sum('amount'),
-            'active_vouchers' => Voucher::where('status', 'active')->count(),
+            'active_vouchers' => Voucher::where('status', 'active')
+                ->where(fn($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+                ->count(),
             'pending_provision' => Voucher::where('status', 'provision_pending')->count(),
             'failed_payments' => Payment::where('status', 'failed')->whereDate('updated_at', today())->count(),
             'pending_payments' => Payment::where('status', 'pending')->count(),
@@ -117,21 +119,29 @@ class AdminController extends Controller
                     ->orWhereHas('order.payments', fn($p) => $p->where('reference', 'like', '%' . $term . '%'));
             });
         }
+        $now = now();
         if (!empty($filters['status'])) {
             if ($filters['status'] === 'failed') $query->where('status', 'provision_pending')->whereNotNull('provision_error');
             elseif ($filters['status'] === 'pending') $query->where('status', 'provision_pending');
+            elseif ($filters['status'] === 'active') $query->where('status', 'active')->where(fn($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', $now));
+            elseif ($filters['status'] === 'expired') $query->where(fn($q) => $q->where('status', 'expired')->orWhere(fn($active) => $active->where('status', 'active')->where('expires_at', '<=', $now)));
             else $query->where('status', $filters['status']);
         }
         if (!empty($filters['plan_id'])) $query->where('plan_id', $filters['plan_id']);
         if (!empty($filters['date'])) $query->whereDate('created_at', $filters['date']);
         $page = $query->paginate(50)->withQueryString();
-        $page->getCollection()->transform(function (Voucher $voucher) {
+        $page->getCollection()->transform(function (Voucher $voucher) use ($now) {
             $row = $voucher->toArray();
+            if ($voucher->status === 'active' && $voucher->expires_at && $voucher->expires_at->lte($now)) $row['status'] = 'expired';
             $row['password'] = $voucher->secret;
             return $row;
         });
+        $summary = Voucher::selectRaw('status, COUNT(*) as total')->groupBy('status')->pluck('total', 'status');
+        $elapsedCount = Voucher::where('status', 'active')->where('expires_at', '<=', $now)->count();
+        $summary['active'] = (int) ($summary['active'] ?? 0) - $elapsedCount;
+        $summary['expired'] = (int) ($summary['expired'] ?? 0) + $elapsedCount;
         return response()->json(array_merge($page->toArray(), [
-            'summary' => Voucher::selectRaw('status, COUNT(*) as total')->groupBy('status')->pluck('total', 'status'),
+            'summary' => $summary,
         ]));
     }
 
@@ -149,7 +159,9 @@ class AdminController extends Controller
                 report($e);
             }
         }
-        return array_merge($voucher->toArray(), [
+        $details = $voucher->toArray();
+        if ($voucher->status === 'active' && $voucher->expires_at?->isPast()) $details['status'] = 'expired';
+        return array_merge($details, [
             'password' => $voucher->secret,
             'router_total_uptime' => $routerUptime,
             'router_checked_at' => $routerCheckedAt,

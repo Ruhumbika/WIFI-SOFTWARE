@@ -7,6 +7,8 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Plan;
 use App\Services\SnippeClient;
+use App\Services\ClickPesaClient;
+use App\Services\ClickPesaPaymentReconciler;
 use App\Services\MikrotikRestClient;
 use App\Services\VoucherProvisioner;
 use Illuminate\Http\Request;
@@ -14,6 +16,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Http\Client\RequestException;
 use Throwable;
 
 class PublicPortalController extends Controller
@@ -57,36 +60,81 @@ class PublicPortalController extends Controller
         ]), 201);
     }
 
-    public function pay(string $uuid, SnippeClient $snippe)
+    public function pay(string $uuid, ClickPesaClient $clickpesa, ClickPesaPaymentReconciler $reconciler)
     {
         $this->authorizeOrder(request(), $uuid);
         $order = Order::with('plan')->where('uuid', $uuid)->firstOrFail();
-        if ($order->status === 'completed') return response()->json($this->orderPayload($order));
+        $lock = Cache::lock('clickpesa:pay:'.$order->id, 30);
+        if (!$lock->get()) return response()->json(['message' => 'A payment request is already in progress.'], 429);
+        try {
+            return $this->payOrder($order, $clickpesa, $reconciler);
+        } finally {
+            $lock->release();
+        }
+    }
 
-        $payment = Payment::where('order_id', $order->id)->where('status', 'pending')->latest()->first();
-        if (!$payment) {
+    private function payOrder(Order $order, ClickPesaClient $clickpesa, ClickPesaPaymentReconciler $reconciler)
+    {
+        if ($order->paid_at || in_array($order->status, ['paid', 'provisioning', 'completed'], true)) {
+            return response()->json(['message' => 'This order has already been paid. Refresh to see the latest result.'], 409);
+        }
+        try {
+            $clickpesa->assertConfigured();
+        } catch (Throwable $e) {
+            report($e);
+            return response()->json(['message' => 'Payment is unavailable right now. Please try again later.'], 502);
+        }
+
+        $payment = Payment::where('order_id', $order->id)->latest()->first();
+        if ($payment && $payment->provider === 'snippe') {
+            return response()->json(['message' => 'This order uses an existing payment request. Refresh to see its result.'], 409);
+        }
+        if ($payment && $payment->status === 'pending' && $payment->reference) {
+            $lastPush = (int) Cache::get('payment-push-at:'.$payment->id, $payment->created_at->timestamp);
+            try {
+                $status = $reconciler->reconcile($payment, $clickpesa);
+                if (in_array($status, ['SUCCESS', 'SETTLED'], true)) {
+                    return response()->json(['message' => 'Payment is already complete. Refresh to see the result.'], 409);
+                }
+                if ($status !== 'FAILED' && now()->timestamp - $lastPush < 300) {
+                    return response()->json(['message' => 'Payment request is already waiting for approval.'], 409);
+                }
+            } catch (Throwable $e) {
+                if (!$e instanceof RequestException || $e->response->status() !== 404) {
+                    report($e);
+                    return response()->json(['message' => 'Could not confirm the previous payment request. Please try again.'], 502);
+                }
+                if (now()->timestamp - $lastPush < 300) {
+                    return response()->json(['message' => 'Please wait before requesting another payment.'], 429);
+                }
+            }
+        }
+        if (!$payment || $payment->reference || $payment->status !== 'pending') {
             $paymentUuid = (string) Str::uuid();
-            $key = 'p-' . substr(str_replace('-', '', $paymentUuid), 0, 26);
+            $reference = 'R'.strtoupper(substr(str_replace('-', '', $paymentUuid), 0, 19));
             $payment = Payment::create([
                 'uuid' => $paymentUuid,
                 'order_id' => $order->id,
-                'provider' => 'snippe',
+                'provider' => 'clickpesa',
+                'reference' => $reference,
                 'status' => 'pending',
                 'amount' => $order->amount,
                 'currency' => 'TZS',
-                'idempotency_key' => $key,
+                'idempotency_key' => $reference,
             ]);
         }
 
         try {
-            $response = $snippe->createPayment($order, $payment);
-            $reference = data_get($response, 'data.reference');
-            $payment->forceFill(['reference' => $reference, 'provider_payload' => $response])->save();
+            $response = $clickpesa->initiate($order, $payment);
+            if (($response['orderReference'] ?? null) !== $payment->reference
+                || !in_array($response['status'] ?? null, ['PROCESSING', 'SUCCESS', 'SETTLED'], true)) {
+                throw new \RuntimeException('ClickPesa returned an unexpected payment response.');
+            }
+            $payment->forceFill(['provider_payload' => $response])->save();
             Cache::add('payment-push-at:'.$payment->id, now()->timestamp, now()->addHours(4));
             return response()->json([
                 'order' => $this->orderPayload($order->fresh()),
-                'payment' => ['reference' => $reference, 'status' => data_get($response, 'data.status', 'pending')],
-                'mock' => $snippe->isMock(),
+                'payment' => ['reference' => $payment->reference, 'status' => 'pending'],
             ]);
         } catch (Throwable $e) {
             report($e);
@@ -94,7 +142,7 @@ class PublicPortalController extends Controller
         }
     }
 
-    public function resendPush(string $uuid, SnippeClient $snippe)
+    public function resendPush(string $uuid, SnippeClient $snippe, ClickPesaClient $clickpesa, ClickPesaPaymentReconciler $reconciler)
     {
         $this->authorizeOrder(request(), $uuid);
         $order = Order::with('plan')->where('uuid', $uuid)->firstOrFail();
@@ -115,6 +163,11 @@ class PublicPortalController extends Controller
             return response()->json(['message' => 'A resend is already in progress.'], 429);
         }
         try {
+            if ($payment->provider === 'clickpesa') {
+                $result = $this->pay($uuid, $clickpesa, $reconciler);
+                if ($result->getStatusCode() !== 200) return $result;
+                return response()->json($this->orderPayload($order->fresh()));
+            }
             $status = data_get($snippe->getPayment($payment->reference), 'data.status');
             if ($status !== 'pending') {
                 return response()->json(['message' => 'Payment status changed. Refresh to see the latest result.'], 409);
@@ -130,10 +183,21 @@ class PublicPortalController extends Controller
         }
     }
 
-    public function showOrder(string $uuid)
+    public function showOrder(string $uuid, ClickPesaClient $clickpesa, ClickPesaPaymentReconciler $reconciler)
     {
         $this->authorizeOrder(request(), $uuid);
-        return response()->json($this->orderPayload(Order::with(['plan', 'payments', 'voucher'])->where('uuid', $uuid)->firstOrFail()));
+        $order = Order::with(['plan', 'payments', 'voucher'])->where('uuid', $uuid)->firstOrFail();
+        foreach ($order->payments->sortByDesc('id') as $payment) {
+            if ($order->paid_at || $payment->provider !== 'clickpesa' || $payment->status !== 'pending'
+                || !Cache::add('clickpesa:status-poll:'.$payment->id, true, now()->addSeconds(15))) continue;
+            try {
+                $reconciler->reconcile($payment, $clickpesa);
+                $order->refresh();
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+        return response()->json($this->orderPayload($order));
     }
 
     public function connectionStatus(Request $request, string $uuid, MikrotikRestClient $mikrotik)
@@ -161,18 +225,6 @@ class PublicPortalController extends Controller
             return response()->json(['state' => 'router_unavailable'], 503);
         }
         return ['state' => $online ? 'online' : 'offline'];
-    }
-
-    public function mockComplete(string $uuid, SnippeClient $snippe)
-    {
-        $this->authorizeOrder(request(), $uuid);
-        abort_unless($snippe->isMock(), 404);
-        $order = Order::with('payments')->where('uuid', $uuid)->firstOrFail();
-        $payment = $order->payments()->latest()->firstOrFail();
-        $payment->forceFill(['status' => 'completed', 'completed_at' => now()])->save();
-        $order->forceFill(['status' => 'paid', 'paid_at' => now()])->save();
-        ProvisionPaidOrder::dispatchSync($order->id);
-        return response()->json($this->orderPayload($order->fresh(['plan', 'payments', 'voucher'])));
     }
 
     public function prepareConnection(
@@ -296,7 +348,6 @@ class PublicPortalController extends Controller
             'preparation_timed_out' => (bool) ($paidAt && !$voucherReady && $paidAt->copy()->addMinutes(6)->isPast()),
             'amount' => $order->amount,
             'currency' => $order->currency,
-            'mock' => app(SnippeClient::class)->isMock(),
             'phone' => $order->customer_phone,
             'device_mac' => $order->device_mac,
             'plan' => $order->plan,

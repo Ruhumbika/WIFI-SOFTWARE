@@ -43,6 +43,37 @@ class AdminPackagesAndLogsTest extends TestCase
         $this->assertSame(86400, $plan->fresh()->duration_seconds);
     }
 
+    public function test_elapsed_active_voucher_moves_out_of_available_admin_results_without_changing_record(): void
+    {
+        $plan = Plan::create([
+            'uuid' => (string) Str::uuid(), 'name' => 'Day', 'code' => 'DAY', 'price' => 2000,
+            'currency' => 'TZS', 'duration_seconds' => 86400, 'rate_limit' => '4M/4M',
+            'mikrotik_profile_name' => 'RJAY_DAY', 'active' => true,
+        ]);
+        $elapsed = Voucher::create([
+            'uuid' => (string) Str::uuid(), 'code' => 'RJAY-OLD', 'secret' => '123456',
+            'plan_id' => $plan->id, 'status' => 'active', 'expires_at' => now()->subMinute(),
+        ]);
+        $current = Voucher::create([
+            'uuid' => (string) Str::uuid(), 'code' => 'RJAY-NEW', 'secret' => '654321',
+            'plan_id' => $plan->id, 'status' => 'active', 'expires_at' => now()->addHour(),
+        ]);
+        $headers = $this->adminHeaders();
+
+        $this->getJson('/api/admin/vouchers?status=active', $headers)
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $current->id);
+        $this->getJson('/api/admin/vouchers?status=expired', $headers)
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $elapsed->id)
+            ->assertJsonPath('data.0.status', 'expired');
+        $this->getJson('/api/admin/vouchers', $headers)
+            ->assertOk()->assertJsonPath('summary.active', 1)->assertJsonPath('summary.expired', 1);
+        $this->getJson('/api/admin/dashboard', $headers)
+            ->assertOk()->assertJsonPath('active_vouchers', 1);
+        $this->getJson('/api/admin/vouchers/'.$elapsed->id, $headers)
+            ->assertOk()->assertJsonPath('status', 'expired');
+        $this->assertSame('active', $elapsed->fresh()->status);
+    }
+
     public function test_admin_log_view_excludes_raw_messages_and_requires_authentication(): void
     {
         $this->getJson('/api/admin/logs')->assertUnauthorized();
