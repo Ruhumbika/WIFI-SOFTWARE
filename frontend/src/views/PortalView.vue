@@ -1,9 +1,30 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { api } from "../api";
+import { formatPhoneInput } from "../utils/formatPhoneInput";
 import VoucherCard from "../components/vouchers/VoucherCard.vue";
-import AnimatedWifi from "../components/AnimatedWifi.vue";
+import SignalEye from "../components/portal/SignalEye.vue";
 import { voucherTimeLeft } from "../utils/voucherTime";
+
+import VoucherAccessPanel from '../components/portal/VoucherAccessPanel.vue';
+import { submitHotspotLogin as sendHotspotLogin } from '../utils/hotspotLogin';
+const portalMode = ref<'home' | 'buy' | 'redeem' | 'recovery'>(new URLSearchParams(location.search).has('voucher-return') ? 'recovery' : 'home');
+const recoveryDisplay = ref('');
+const recoveryBusy = ref(false);
+const recoveryError = ref('');
+async function issueRecovery() {
+  if (!order.value?.voucher?.uuid || recoveryBusy.value) return;
+  recoveryBusy.value = true; recoveryError.value = '';
+  try {
+    const { data } = await api.post(`/public/vouchers/${order.value.voucher.uuid}/recovery-pin`);
+    recoveryDisplay.value = data.recovery_pin;
+    order.value.voucher.recovery_issued = true;
+    sessionStorage.removeItem('rjay_recovery_new_order');
+  } catch (e: any) {
+    if (e.response?.status === 409) { order.value.voucher.recovery_issued = true; sessionStorage.removeItem('rjay_recovery_new_order'); }
+    recoveryError.value = 'Recovery PIN could not be displayed. If it was already issued, contact the operator to reset it.';
+  } finally { recoveryBusy.value = false; }
+}
 
 type ConnectionState =
   | "idle"
@@ -44,6 +65,10 @@ const connectionCheckBusy = ref(false);
 let lastPrepareAt = 0;
 let prepareAttempts = 0;
 
+watch(() => order.value?.voucher?.uuid, (uuid) => {
+  if (uuid && !order.value.voucher.recovery_issued && sessionStorage.getItem('rjay_recovery_new_order') === order.value.uuid) void issueRecovery();
+});
+
 const orderStorageKey = "rjay_current_order";
 const params = new URLSearchParams(location.search);
 const deviceMac = params.get("mac") || "";
@@ -67,6 +92,7 @@ onMounted(async () => {
   const savedOrder =
     params.get("order") || sessionStorage.getItem(orderStorageKey);
   if (savedOrder) {
+    if (!params.has('voucher-return')) portalMode.value = 'buy';
     try {
       order.value = (
         await api.get(`/public/orders/${encodeURIComponent(savedOrder)}`)
@@ -124,23 +150,18 @@ async function choosePlan(plan: any) {
 
 function closeCheckout() {
   checkoutDialog.value?.close();
+  selected.value = null;
 }
 
 function onPhoneInput(event: Event) {
   const input = event.target as HTMLInputElement;
-  let digits = input.value.replace(/\D/g, "");
-  if (digits.startsWith("0")) digits = `255${digits.slice(1)}`;
-  else if (/^[67]/.test(digits)) digits = `255${digits}`;
-  digits = digits.slice(0, 12);
-  phone.value = digits.replace(
-    /^(\d{0,3})(\d{0,3})(\d{0,3})(\d{0,3}).*$/,
-    (_, a, b, c, d) => [a, b, c, d].filter(Boolean).join(" "),
-  );
+  phone.value = formatPhoneInput(input.value);
   input.value = phone.value;
   if (phoneValid.value && !checkoutSubmitted.value) void buy();
 }
 
 async function buy() {
+  portalMode.value = 'buy';
   if (!selected.value || loading.value || checkoutSubmitted.value || !phoneValid.value) return;
 
   checkoutSubmitted.value = true;
@@ -156,6 +177,7 @@ async function buy() {
     });
 
     order.value = created.data;
+    sessionStorage.setItem('rjay_recovery_new_order', order.value.uuid);
     sessionStorage.setItem(orderStorageKey, order.value.uuid);
     if (order.value.access_token)
       sessionStorage.setItem("rjay_order_token", order.value.access_token);
@@ -265,7 +287,7 @@ async function verifyConnection() {
         params: { device_mac: deviceMac || undefined },
       },
     );
-    const state = response.data.state;
+    const state = response.data.state === "active_other_device" ? "device_mismatch" : response.data.state === "unknown" ? "manual" : response.data.state;
     if (state === "online") {
       connectionState.value = "connected";
       stopPoll();
@@ -356,7 +378,12 @@ function stopPoll() {
 }
 
 async function prepareConnection(automatic = false) {
-  if (!order.value || connectionBusy.value) return;
+  if (automatic && portalMode.value !== 'buy') return;
+  if (!order.value || connectionBusy.value || recoveryBusy.value || recoveryDisplay.value) return;
+  if (order.value.voucher && !order.value.voucher.recovery_issued && sessionStorage.getItem('rjay_recovery_new_order') === order.value.uuid) {
+    await issueRecovery();
+    return;
+  }
 
   lastPrepareAt = Date.now();
   connectionBusy.value = true;
@@ -418,34 +445,15 @@ async function prepareConnection(automatic = false) {
 function submitHotspotLogin(loginUrl: string) {
   if (!order.value?.voucher) return;
 
-  const form = document.createElement("form");
-  form.method = "post";
-  form.action = loginUrl;
-
   const returnUrl = new URL(location.href);
-  returnUrl.searchParams.set("order", order.value.uuid);
-  returnUrl.searchParams.set("connected", "1");
-
-  const fields = [
-    ["username", order.value.voucher.code],
-    ["password", order.value.voucher.password],
-    ["dst", returnUrl.toString()],
-    ["popup", "false"],
-  ];
-
-  fields.forEach(([fieldName, value]) => {
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = fieldName;
-    input.value = value;
-    form.appendChild(input);
-  });
-
-  document.body.appendChild(form);
-  form.submit();
+  returnUrl.searchParams.set('order', order.value.uuid);
+  returnUrl.searchParams.set('connected', '1');
+  sendHotspotLogin(loginUrl, order.value.voucher, returnUrl);
 }
 
 function startNewPurchase() {
+  recoveryDisplay.value=''; recoveryError.value='';
+  sessionStorage.removeItem('rjay_recovery_new_order');
   sessionStorage.removeItem(orderStorageKey);
   sessionStorage.removeItem("rjay_order_token");
   order.value = null;
@@ -559,22 +567,32 @@ const connectionProblem = computed(() =>
   ].includes(connectionState.value),
 );
 
+const paymentServiceUnavailable = computed(() => error.value.includes('Huduma ya malipo haipatikani'));
 const paymentTitle = computed(() => {
+  if (loading.value || resendBusy.value) return "Tunatuma ombi…";
+  if (paymentServiceUnavailable.value) return "Malipo hayapatikani";
   if (paymentFailed.value) return "Malipo hayajakamilika";
-  if (paymentRequestMissing.value) return loading.value ? "Tunatuma ombi…" : "Ombi halijatumwa";
-  if (pushSecondsLeft.value === 0) return "Bado hatujapata uthibitisho";
-  if (paymentAwaitingPin.value) return "Weka PIN kwenye simu yako";
-  return "Tunakagua malipo";
+  if (paymentRequestMissing.value) return "Tuma ombi la malipo";
+  if (pushSecondsLeft.value === 0) return "Bado hatujapokea malipo";
+  if (paymentAwaitingPin.value) return "Weka PIN kwenye simu";
+  return "Tunakagua malipo…";
 });
 
 const paymentMessage = computed(() => {
-  if (paymentFailed.value) return "Ombi la awali limeshindwa. Unaweza kujaribu tena.";
-  if (paymentRequestMissing.value) return loading.value
-    ? "Subiri ombi lifike kwenye simu yako."
-    : "Bonyeza kitufe hapa chini upokee ombi la kuweka PIN.";
-  if (pushSecondsLeft.value === 0) return "Kagua simu yako. Kama hujalipa, unaweza kutuma ombi tena.";
-  if (paymentAwaitingPin.value) return "Thibitisha ombi la malipo kwenye simu yako.";
-  return "Subiri hali ya malipo ithibitishwe.";
+  if (paymentServiceUnavailable.value) return "Jaribu tena baadaye.";
+  if (error.value) return error.value;
+  if (paymentAwaitingPin.value) return "";
+  if (pushSecondsLeft.value === 0) return "Umeshalipa? Subiri uthibitisho.";
+  return "";
+});
+
+const portalEyeStatus = computed<'idle' | 'loading' | 'waiting' | 'success' | 'error'>(() => {
+  if (booting.value || loading.value || resendBusy.value || recoveryBusy.value || connectionBusy.value || refreshBusy.value) return 'loading';
+  if (portalStage.value === 'online') return 'success';
+  if (restoreFailed.value || paymentFailed.value || paymentServiceUnavailable.value || connectionProblem.value || preparationTimedOut.value || error.value) return 'error';
+  if (paymentAwaitingPin.value || (order.value && !paid.value)) return 'waiting';
+  if (paid.value && !completed.value || portalStage.value === 'connecting' && connectionWaiting.value) return 'loading';
+  return 'idle';
 });
 
 const connectionTitle = computed(() => {
@@ -648,29 +666,31 @@ const browsingDestination = computed(() => {
 <template>
   <div class="portal-shell">
     <div class="portal-wrap">
-      <header v-if="portalStage !== 'choose'" class="portal-header">
-        <div class="portal-logo">
-          <AnimatedWifi
-            :busy="portalStage === 'connecting' && connectionWaiting"
-          />
-        </div>
-        <div>
-          <div class="brand portal-brand">RJAY WiFi</div>
-          <div class="portal-kicker">Get online in under a minute</div>
-        </div>
-        <div class="portal-secure">
-          <i class="bi bi-shield-check" aria-hidden="true"></i
-          ><span>Secure</span>
-        </div>
+      <header class="mobile-brand">
+        <button class="mobile-brand__eye" aria-label="Use a voucher" @click="portalMode='redeem'"><SignalEye :status="portalEyeStatus" /></button>
+        <div><h1>RJAY <span>WiFi</span></h1></div>
+        <span class="mobile-brand__secure" aria-label="Secure access"><i class="bi bi-shield-check" aria-hidden="true"></i></span>
       </header>
-
       <main>
+        <section class="access-shell">
+          <div class="access-tabs" role="group" aria-label="Voucher access">
+            <button :class="{active:portalMode !== 'recovery'}" :aria-pressed="portalMode !== 'recovery'" @click="portalMode='redeem'"><i class="bi bi-wifi" aria-hidden="true"></i> Use voucher</button>
+            <button :class="{active:portalMode === 'recovery'}" :aria-pressed="portalMode === 'recovery'" @click="portalMode='recovery'"><i class="bi bi-ticket-perforated" aria-hidden="true"></i> My vouchers</button>
+          </div>
+          <VoucherAccessPanel v-if="!order || portalMode !== 'buy'" :key="portalMode === 'recovery' ? 'recovery':'redeem'" :mode="portalMode === 'recovery' ? 'recovery':'redeem'" compact @buy="portalMode='home'; startNewPurchase()" />
+          <button v-else-if="order.voucher" class="btn btn-link w-100" @click="portalMode='recovery'">My voucher</button>
+        </section>
+        <div class="purchase-flow">
+          <section v-if="recoveryDisplay || recoveryError || (order?.voucher && !order.voucher.recovery_issued)" class="portal-state-card mb-3" aria-live="polite">
+            <template v-if="recoveryDisplay"><h2 class="h4">Recovery PIN: {{ recoveryDisplay }}</h2><p>Keep this recovery PIN. You can use it to recover this voucher later.</p><button class="btn btn-primary" @click="recoveryDisplay=''; prepareConnection()">I have saved it — Continue</button></template>
+            <template v-else><p v-if="recoveryError">{{ recoveryError }}</p><p>Save a recovery PIN to find this voucher later.</p><button class="btn btn-outline-primary" :disabled="recoveryBusy" @click="issueRecovery">{{ recoveryBusy ? 'Preparing…' : 'Get recovery PIN once' }}</button></template>
+          </section>
         <section
           v-if="portalStage === 'restoring'"
           class="portal-state-card"
           aria-live="polite"
         >
-          <div class="portal-loader" aria-hidden="true"></div>
+          <div class="status-eye"><SignalEye status="loading" /></div>
           <h1>Tunakagua malipo yako</h1>
           <p>Tafadhali subiri…</p>
         </section>
@@ -680,9 +700,7 @@ const browsingDestination = computed(() => {
           class="portal-state-card"
           aria-live="polite"
         >
-          <div class="state-icon warning">
-            <i class="bi bi-exclamation-lg" aria-hidden="true"></i>
-          </div>
+          <div class="status-eye"><SignalEye status="error" /></div>
           <h1>Hatujaweza kukagua malipo</h1>
           <p>{{ restoreMessage }}</p>
           <button class="primary-action mt-4" @click="retryRestore">
@@ -694,14 +712,7 @@ const browsingDestination = computed(() => {
           v-else-if="portalStage === 'choose'"
           class="portal-purchase-card"
         >
-          <div class="portal-section-heading">
-            <div class="portal-hero-icon" aria-hidden="true">
-              <AnimatedWifi busy />
-            </div>
-            <span class="portal-eyebrow">RJAY WIFI</span>
-            <h1>Chagua kifurushi</h1>
-            <p>Lipia kwa namba yako ya simu.</p>
-          </div>
+          <div class="plans-heading"><h2>Buy internet</h2><span>Chagua kifurushi</span></div>
 
           <div
             v-if="!plans.length && !error"
@@ -730,7 +741,7 @@ const browsingDestination = computed(() => {
                 <div class="plan-option__title-row">
                   <strong>{{ plan.name }}</strong>
                   <span v-if="plan.recommended" class="plan-option__recommended"
-                    >Pendekezo</span
+                    >Popular</span
                   >
                 </div>
                 <div class="plan-option__meta">
@@ -765,8 +776,10 @@ const browsingDestination = computed(() => {
           </div>
 
           <dialog
+            v-if="selected"
             ref="checkoutDialog"
-            class="checkout-dialog border-0 p-0 col-11 col-sm-8 col-md-6 col-lg-4"
+            class="checkout-dialog border-0 p-0"
+            @cancel="loading ? $event.preventDefault() : closeCheckout()"
             aria-labelledby="checkout-title"
           >
             <div class="checkout-card card border-0 p-4">
@@ -803,13 +816,13 @@ const browsingDestination = computed(() => {
                     pattern="[0-9 ]*"
                     autocomplete="tel"
                     required
-                    placeholder="255 787 550 399"
+                    placeholder="255 7XX XXX XXX"
                     aria-describedby="phone-help"
                     :disabled="loading || checkoutSubmitted"
                   /><small id="phone-help" class="text-secondary">{{
                     phone.length && !phoneValid
-                      ? "Weka namba sahihi ya simu ya Tanzania."
-                      : "Ombi litatumwa namba ikikamilika."
+                      ? "Hakiki namba ya simu."
+                      : "Ombi hutumwa namba ikikamilika."
                   }}</small>
                 </div>
                 <div v-if="error" class="alert alert-danger" role="alert">
@@ -821,11 +834,7 @@ const browsingDestination = computed(() => {
                   role="status"
                   aria-live="polite"
                 >
-                  <span
-                    v-if="loading"
-                    class="spinner-border spinner-border-sm"
-                    aria-hidden="true"
-                  ></span>
+                  <span v-if="loading" class="inline-eye"><SignalEye status="loading" /></span>
                   {{ checkoutStep }}
                 </p>
                 <button
@@ -844,88 +853,37 @@ const browsingDestination = computed(() => {
         </section>
 
         <section
-          v-else-if="
-            portalStage === 'paying' || portalStage === 'payment_failed'
-          "
-          class="portal-state-card"
+          v-else-if="portalStage === 'paying' || portalStage === 'payment_failed'"
+          class="portal-state-card payment-card"
           aria-live="polite"
+          :aria-busy="loading || resendBusy"
         >
-          <div
-            class="state-icon"
-            :class="[
-              paymentFailed || paymentRequestMissing ? 'warning' : 'phone',
-              { 'is-waiting': paymentAwaitingPin },
-            ]"
-          >
-            <i
-              :class="
-                paymentFailed || paymentRequestMissing
-                  ? 'bi bi-exclamation-lg'
-                  : 'bi bi-phone-vibrate'
-              "
-              aria-hidden="true"
-            ></i>
-          </div>
           <div class="payment-summary">
             <span>{{ order?.plan?.name || selected?.name }}</span>
             <strong>TZS {{ Number(order?.amount || selected?.price || 0).toLocaleString() }}</strong>
           </div>
+          <div class="status-eye"><SignalEye :status="portalEyeStatus" /></div>
           <h1>{{ paymentTitle }}</h1>
-          <p>{{ paymentMessage }}</p>
-          <div
-            v-if="paymentAwaitingPin || (!paymentFailed && !paymentRequestMissing && pushSecondsLeft === 0)"
-            class="payment-next-step"
-            role="status"
-          >
-            <p v-if="paymentAwaitingPin" class="mb-0">
-              Tunasubiri uthibitisho · {{ pushCountdown }}
-            </p>
-            <button
-              v-else
-              type="button"
-              class="secondary-action"
-              :disabled="resendBusy"
-              @click="resendPush"
-            >
-              <span
-                v-if="resendBusy"
-                class="spinner-border spinner-border-sm"
-                aria-hidden="true"
-              ></span>
-              {{
-                resendBusy ? "Tunakagua malipo…" : "Tuma ombi tena"
-              }}
-            </button>
-          </div>
-          <div v-if="error" class="alert alert-warning mt-3" role="alert">
-            {{ error }}
-          </div>
-
+          <p v-if="paymentMessage" class="payment-message" :role="error ? 'alert' : undefined">{{ paymentMessage }}</p>
+          <div v-if="paymentAwaitingPin" class="payment-countdown" aria-label="Muda uliobaki">{{ pushCountdown }}</div>
           <button
             v-if="paymentRequestMissing"
             class="primary-action"
             :disabled="loading"
             @click="continuePayment"
           >
-            <span
-              v-if="loading"
-              class="spinner-border spinner-border-sm"
-              aria-hidden="true"
-            ></span>
-            {{
-              loading
-                ? "Tunatuma ombi…"
-                : paymentFailed
-                  ? "Jaribu tena"
-                  : "Tuma ombi la PIN"
-            }}
+            <span v-if="loading" class="inline-eye"><SignalEye status="loading" /></span>
+            {{ loading ? 'Subiri…' : error || paymentFailed ? 'Jaribu tena' : 'Tuma ombi' }}
+            <i v-if="!loading" class="bi bi-arrow-right" aria-hidden="true"></i>
           </button>
           <button
-            v-if="paymentFailed"
-            class="text-action"
-            @click="startNewPurchase"
+            v-else-if="pushSecondsLeft === 0"
+            class="primary-action"
+            :disabled="resendBusy"
+            @click="resendPush"
           >
-            Chagua kifurushi kingine
+            <span v-if="resendBusy" class="inline-eye"><SignalEye status="loading" /></span>
+            {{ resendBusy ? 'Subiri…' : 'Tuma tena' }}
           </button>
         </section>
 
@@ -934,9 +892,7 @@ const browsingDestination = computed(() => {
           class="portal-state-card"
           aria-live="polite"
         >
-          <div class="state-icon preparing is-waiting">
-            <i class="bi bi-gear" aria-hidden="true"></i>
-          </div>
+          <div class="status-eye"><SignalEye status="loading" /></div>
           <div class="state-eyebrow">Malipo yamepokelewa</div>
           <h1>Tunaandaa intaneti yako</h1>
           <p>Tafadhali subiri, inaweza kuchukua hadi dakika 6.</p>
@@ -948,9 +904,7 @@ const browsingDestination = computed(() => {
           class="portal-state-card"
           aria-live="polite"
         >
-          <div class="state-icon warning">
-            <i class="bi bi-exclamation-lg" aria-hidden="true"></i>
-          </div>
+          <div class="status-eye"><SignalEye status="error" /></div>
           <div class="state-eyebrow">Malipo yamepokelewa</div>
           <h1>
             {{
@@ -971,11 +925,7 @@ const browsingDestination = computed(() => {
             :disabled="refreshBusy"
             @click="refresh"
           >
-            <span
-              v-if="refreshBusy"
-              class="spinner-border spinner-border-sm"
-              aria-hidden="true"
-            ></span>
+            <span v-if="refreshBusy" class="inline-eye"><SignalEye status="loading" /></span>
             {{ refreshBusy ? "Tunakagua…" : "Kagua tena" }}
           </button>
           <p v-if="error" class="portal-alert danger" role="alert">
@@ -988,20 +938,7 @@ const browsingDestination = computed(() => {
           class="portal-state-card connection-card"
           aria-live="polite"
         >
-          <div
-            class="state-icon"
-            :class="[
-              connectionProblem ? 'warning' : 'wifi',
-              { 'is-waiting': connectionWaiting },
-            ]"
-          >
-            <i
-              v-if="connectionProblem"
-              class="bi bi-exclamation-lg"
-              aria-hidden="true"
-            ></i>
-            <AnimatedWifi v-else :busy="connectionWaiting" />
-          </div>
+          <div class="status-eye"><SignalEye :status="portalEyeStatus" /></div>
           <div class="state-eyebrow">{{ order?.plan?.name }}</div>
           <h1>{{ connectionTitle }}</h1>
           <p>{{ connectionMessage }}</p>
@@ -1016,12 +953,8 @@ const browsingDestination = computed(() => {
             :disabled="connectionBusy"
             @click="prepareConnection()"
           >
-            <span
-              v-if="connectionBusy"
-              class="spinner-border spinner-border-sm"
-              aria-hidden="true"
-            ></span>
-            <AnimatedWifi v-else />
+            <span v-if="connectionBusy" class="inline-eye"><SignalEye status="loading" /></span>
+            <span v-else class="inline-eye"><SignalEye :status="portalEyeStatus" /></span>
             {{
               connectionState === "manual"
                 ? "Connect now"
@@ -1041,8 +974,9 @@ const browsingDestination = computed(() => {
           </button>
 
           <div v-if="order?.voucher" class="voucher-secondary">
+            <p v-if="order.masked_phone">Linked phone: {{ order.masked_phone }}</p>
             <VoucherCard
-              :voucher="order.voucher"
+              :voucher="{ ...order.voucher, device_mac: order.voucher.masked_device_mac }"
               :plan="order.plan"
               :now-ms="nowTick"
               :show-connect="false"
@@ -1057,9 +991,7 @@ const browsingDestination = computed(() => {
           aria-live="polite"
         >
           <div class="online-hero">
-            <div class="state-icon success">
-              <i class="bi bi-check-lg" aria-hidden="true"></i>
-            </div>
+            <div class="status-eye"><SignalEye status="success" /></div>
             <div class="state-eyebrow">Connected successfully</div>
             <h1>You’re online</h1>
             <p>Internet access is active on this device.</p>
@@ -1089,8 +1021,9 @@ const browsingDestination = computed(() => {
           </a>
 
           <div class="voucher-secondary">
+            <p v-if="order?.masked_phone">Linked phone: {{ order.masked_phone }}</p>
             <VoucherCard
-              :voucher="order.voucher"
+              :voucher="{ ...order.voucher, device_mac: order.voucher.masked_device_mac }"
               :plan="order.plan"
               :now-ms="nowTick"
               :show-connect="false"
@@ -1098,6 +1031,7 @@ const browsingDestination = computed(() => {
             />
           </div>
         </section>
+        </div>
       </main>
 
       <footer class="portal-footer">
@@ -2046,4 +1980,72 @@ v .plan-option:not(:active):not(:focus-visible) .plan-option__price i {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Keep voucher entry and real packages together in a compact mobile layout. */
+.portal-shell { --accent:#16879e; --accent-dark:#12677b; --ink:#233746; --muted:#526571; background:#e7edf2; padding:12px 0 28px; }
+.portal-wrap { width:min(100%,520px); padding:0 18px; }
+.mobile-brand { display:flex; align-items:center; gap:13px; padding:10px 5px 22px; }
+.mobile-brand h1 { margin:0; font-size:23px; font-weight:850; letter-spacing:-.8px; }
+.mobile-brand h1 span { color:#16879e; }
+.mobile-brand__secure { margin-left:auto; color:#16879e; font-size:20px; }
+.access-shell { border-radius:25px; padding:14px; background:#e7edf2; border:1px solid #f5f9fb; box-shadow:8px 8px 18px #c8d1d9,-8px -8px 18px #fff; }
+.access-tabs { display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:5px; border-radius:15px; box-shadow:inset 3px 3px 6px #cbd4dc,inset -3px -3px 6px #fff; }
+.access-tabs button { min-height:44px; border:0; border-radius:11px; background:transparent; color:#526571; font-size:13px; font-weight:750; }
+.access-tabs button i { margin-right:4px; }
+.access-tabs button.active { background:#eaf0f5; color:#12677b; box-shadow:3px 3px 6px #c4ced7,-3px -3px 6px #fff; }
+.access-tabs button:focus-visible,.plan-option:focus-visible { outline:3px solid #16879e; outline-offset:3px; }
+.purchase-flow { margin-top:22px; }
+.portal-purchase-card { padding:0; margin:0; border:0; border-radius:0; background:transparent; box-shadow:none; }
+.plans-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 2px 12px; }
+.plans-heading h2 { font-size:17px; margin:0; font-weight:800; }
+.plans-heading span { font-size:11px; color:#526571; }
+.plan-list { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0; }
+.plan-option { display:flex; flex-direction:column; align-items:stretch; justify-content:space-between; min-height:110px; gap:10px; padding:13px; border:1px solid #f7fafc; border-radius:18px; background:#e7edf2; box-shadow:5px 5px 10px #c7d0d9,-5px -5px 10px #fff; text-align:left; }
+.plan-option.recommended { border-color:#66b7c7; background:linear-gradient(140deg,#eaf6f8,#dcecf1); }
+.plan-option.selected { border-color:#16879e; box-shadow:inset 3px 3px 6px #c2d1da,inset -3px -3px 6px #fff; }
+.plan-option__title-row { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:3px; }
+.plan-option__title-row strong { font-size:13px; line-height:1.3; overflow-wrap:anywhere; }
+.plan-option__recommended { font-size:9px; padding:3px 6px; color:#12677b; background:#c7e8ee; border-radius:6px; }
+.plan-option__meta { gap:3px 7px; font-size:10px; margin-top:5px; }
+.plan-option__meta i { display:none; }
+.plan-option__price { display:flex; align-items:baseline; justify-content:flex-start; gap:4px; text-align:left; }
+.plan-option__price strong { color:#12677b; font-size:21px; line-height:1; }
+.plan-option__price span { font-size:9px; }
+.plan-option__price i { margin-left:auto; color:#16879e; font-size:19px; }
+.portal-footer { min-height:36px; font-size:10px; }
+.plan-option { min-height:100px; }
+.plan-option:last-child:nth-child(odd) { grid-column:1 / -1; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; min-height:76px; }
+.plan-option:last-child:nth-child(odd) .plan-option__price { gap:5px; }
+.plan-option:last-child:nth-child(odd) .plan-option__price i { margin-left:12px; }
+@media(max-width:359px) { .portal-wrap {padding:0 12px;} .access-shell {padding:11px;} .plan-list {gap:10px;} .plan-option {padding:11px;} }
+
+.portal-shell { --accent:#198ab5; --accent-dark:#185e87; }
+.mobile-brand__eye { width:92px; height:66px; padding:3px; border:0; border-radius:22px; background:#eaf0f5; box-shadow:5px 5px 11px #c4cdd6,-5px -5px 11px #fff; }
+.mobile-brand__eye:focus-visible { outline:3px solid #168fca; outline-offset:4px; }
+.mobile-brand h1 span,.mobile-brand__secure,.plan-option__price strong,.plan-option__price i { color:#196b97; }
+.access-tabs button.active { color:#196b97; }
+.plan-option.selected { border-color:#3699c5; }
+.checkout-dialog { width:calc(100% - 32px); max-width:430px; max-height:calc(100dvh - 32px); margin:auto; border-radius:24px; background:#eef3f9; box-shadow:0 18px 48px #132d4855,0 0 30px 10px #ffffffb3; }
+.checkout-dialog::backdrop { background:rgba(22,34,53,.59); }
+.checkout-dialog .checkout-card { background:#eef3f9; }
+.checkout-dialog .btn-close { min-width:44px; min-height:44px; padding:0; background-size:16px; flex-shrink:0; }
+.checkout-dialog h2 { font-size:24px; font-weight:500; }
+.checkout-dialog .form-label { font-size:14px; margin-bottom:8px; }
+.checkout-dialog #phone-help { font-size:12px; }
+.portal-shell :deep(.btn-primary),.portal-shell .primary-action { background:linear-gradient(145deg,#f3f7fb,#dfe8ef); border:1px solid #f8fcff; color:#155b86; border-radius:16px; box-shadow:5px 5px 10px #bccbd7,-5px -5px 10px #fff; }
+.portal-shell :deep(.btn-primary:hover),.portal-shell .primary-action:hover { background:#e5eff6; color:#104f78; }
+.portal-shell :deep(.btn-primary:active),.portal-shell .primary-action:active { box-shadow:inset 3px 3px 7px #bccbd7,inset -3px -3px 7px #fff; }
+.portal-shell :deep(.btn-outline-primary) { --bs-btn-color:#196b97; --bs-btn-border-color:#8eb8cd; --bs-btn-hover-bg:#deebf4; --bs-btn-hover-color:#164c6e; --bs-btn-hover-border-color:#6999b4; }
+
+.payment-card { padding:22px; }
+.payment-card .payment-summary { justify-content:space-between; align-items:center; gap:12px; padding-bottom:18px; margin:0 0 22px; border-bottom:1px solid #d5e0e8; text-align:left; font-size:13px; }
+.payment-card .payment-summary strong { flex-shrink:0; color:#185e87; font-size:16px; }
+.payment-card .state-icon { width:48px; height:48px; border-radius:16px; margin:0 auto 16px; font-size:23px; color:#196b97; background:#e4eef5; }
+.payment-card h1 { font-size:clamp(21px,5.8vw,27px); line-height:1.2; letter-spacing:-.5px; }
+.payment-card .payment-message { margin:10px auto 0; max-width:32ch; font-size:14px; line-height:1.5; }
+.payment-card .primary-action { margin-top:24px; min-height:50px; font-size:14px; }
+.payment-countdown { display:inline-flex; margin-top:16px; padding:7px 15px; border-radius:10px; color:#185e87; font-size:15px; font-variant-numeric:tabular-nums; box-shadow:inset 3px 3px 6px #cbd6df,inset -3px -3px 6px #fff; }
+
+.status-eye { width:104px; height:68px; margin:0 auto 16px; }
+.inline-eye { display:inline-flex; width:42px; height:28px; flex-shrink:0; vertical-align:middle; }
 </style>

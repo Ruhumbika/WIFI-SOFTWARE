@@ -18,16 +18,17 @@ class ProvisionPaidOrder implements ShouldQueue
 
     public function handle(VoucherProvisioner $provisioner): void
     {
-        $order = Order::with(['plan', 'voucher'])->findOrFail($this->orderId);
-        if ($order->status === 'completed' && $order->voucher?->status === 'ready') return;
-
-        $order->forceFill(['status' => 'provisioning'])->save();
-        $voucher = $order->voucher ?: $provisioner->createVoucher([
-            'plan_id' => $order->plan_id,
-            'order_id' => $order->id,
-            'customer_phone' => $order->customer_phone,
-            'device_mac' => $order->device_mac,
-        ]);
+        $voucher = \Illuminate\Support\Facades\DB::transaction(function () use ($provisioner) {
+            $order = Order::with(['plan','voucher'])->lockForUpdate()->findOrFail($this->orderId);
+            if (!$order->paid_at && !in_array($order->status,['paid','provisioning','completed'],true) && !$order->payments()->where('status','completed')->exists()) return null;
+            if ($order->voucher && $order->voucher->status !== 'provision_pending') return null;
+            $order->forceFill(['status'=>'provisioning'])->save();
+            return $order->voucher ?: $provisioner->createVoucher([
+                'plan_id'=>$order->plan_id, 'order_id'=>$order->id, 'customer_phone'=>$order->customer_phone,
+            ]);
+        });
+        if (!$voucher) return;
+        $order = Order::findOrFail($this->orderId);
 
         $voucher = $provisioner->provision($voucher);
         if ($voucher->status === 'ready' && $order->fresh()->status !== 'completed') {

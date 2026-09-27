@@ -13,9 +13,12 @@ class Voucher extends Model
         'device_mac', 'status', 'mikrotik_id', 'activated_at', 'expires_at',
         'provisioned_at', 'last_synced_at', 'provision_error',
     ];
-    protected $hidden = ['secret'];
+    protected $hidden = ['secret', 'recovery_pin_hash'];
     protected $casts = [
         'secret' => 'encrypted',
+        'recovery_pin_created_at'=>'datetime', 'recovery_pin_issued_at'=>'datetime',
+        'compromised_at'=>'datetime', 'claimed_at'=>'datetime',
+        'recovery_token_version'=>'integer', 'transfer_count'=>'integer',
         'activated_at' => 'datetime', 'expires_at' => 'datetime',
         'provisioned_at' => 'datetime', 'last_synced_at' => 'datetime',
     ];

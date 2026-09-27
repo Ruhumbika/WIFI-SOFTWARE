@@ -303,7 +303,9 @@ class MikrotikRestClient
     public function bindMac(Voucher $voucher, string $mac): void
     {
         if (!$voucher->mikrotik_id) {
-            return;
+            $user=collect($this->hotspotUsers())->firstWhere('name',$voucher->code);
+            if (!isset($user['.id'])) throw new RuntimeException('Voucher user is unavailable');
+            $voucher->mikrotik_id=$user['.id'];
         }
 
         $this->decoded(
@@ -346,6 +348,38 @@ class MikrotikRestClient
             );
         }
         $this->decoded($response, 'Disconnect HotSpot session');
+    }
+
+    public function reconcileVoucherDevice(Voucher $voucher, string $action, ?string $secret): void
+    {
+        if (!in_array($action, ['release', 'rotate'], true)) throw new RuntimeException('Unsupported voucher action');
+        $user = collect($this->hotspotUsers())->firstWhere('name', $voucher->code);
+        if (!$user || !isset($user['.id'])) throw new RuntimeException('Voucher user is unavailable');
+        $id = $user['.id'];
+        $this->updateMenu('ip/hotspot/user', $id, ['disabled'=>'yes']);
+        $blocked=collect($this->hotspotUsers())->firstWhere('name',$voucher->code);
+        if (!$blocked || !in_array((string)($blocked['disabled']??''),['true','yes','1'],true)) throw new RuntimeException('Router did not confirm temporary disable');
+        foreach ($this->activeSessions() as $session) {
+            if (($session['user'] ?? null) === $voucher->code && isset($session['.id'])) $this->disconnect($session['.id']);
+        }
+        $this->removeVoucherCookies($voucher);
+        $payload = $action === 'release' ? ['mac-address'=>'00:00:00:00:00:00'] : ['password'=>$secret];
+        $this->updateMenu('ip/hotspot/user', $id, $payload);
+        if (collect($this->activeSessions())->contains(fn($s)=>($s['user']??null)===$voucher->code)
+            || collect($this->hotspotCookies())->contains(fn($s)=>($s['user']??null)===$voucher->code)) {
+            throw new RuntimeException('Router still has voucher sessions or cookies');
+        }
+        $updated = collect($this->hotspotUsers())->firstWhere('name', $voucher->code);
+        if (!$updated || ($action === 'release' && !in_array($updated['mac-address']??'', ['', '00:00:00:00:00:00'], true))
+            || ($action === 'rotate' && !hash_equals((string)$secret, (string)($updated['password']??'')))) {
+            throw new RuntimeException('Router did not confirm credential or binding change');
+        }
+        $enabled = !in_array($voucher->status,['expired','disabled','revoked'],true) && !$voucher->expires_at?->isPast();
+        $this->updateMenu('ip/hotspot/user', $id, ['disabled'=>$enabled ? 'no':'yes']);
+        $updated = collect($this->hotspotUsers())->firstWhere('name', $voucher->code);
+        if (!$updated || !array_key_exists('disabled',$updated) || in_array((string)($updated['disabled']??''), ['true','yes','1'], true) === $enabled) {
+            throw new RuntimeException('Router did not confirm final user state');
+        }
     }
 
     public function routerTime(int $seconds): string

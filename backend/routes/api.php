@@ -21,6 +21,20 @@ Route::prefix('public')->group(function () {
     Route::post('/orders/{uuid}/prepare-connection', [PublicPortalController::class, 'prepareConnection']);
 });
 
+Route::prefix('public/vouchers')->controller(\App\Http\Controllers\PublicVoucherController::class)->group(function () {
+    Route::post('/redeem','redeem')->middleware('throttle:voucher-redeem');
+    Route::post('/recovery/lookup','lookup')->middleware('throttle:voucher-lookup');
+    Route::post('/recovery/verify','verify')->middleware('throttle:voucher-verify');
+    Route::post('/claim','claim')->middleware('throttle:voucher-claim');
+    Route::get('/mine','mine')->middleware('throttle:voucher-read');
+    Route::get('/{voucher:uuid}','show')->middleware('throttle:voucher-read');
+    Route::post('/{voucher:uuid}/recovery-pin','issue')->middleware('throttle:voucher-issue');
+    Route::post('/{voucher:uuid}/prepare-connection','prepare')->middleware('throttle:voucher-prepare');
+    Route::get('/{voucher:uuid}/connection','connection')->middleware('throttle:voucher-read');
+    Route::post('/{voucher:uuid}/device-transfer-request','transfer')->middleware('throttle:voucher-transfer');
+    Route::post('/{voucher:uuid}/report-compromised','compromise')->middleware('throttle:voucher-compromise');
+});
+
 Route::post('/webhooks/snippe', SnippeWebhookController::class);
 Route::post('/webhooks/clickpesa', ClickPesaWebhookController::class);
 
@@ -56,6 +70,12 @@ Route::middleware('admin.token')->prefix('admin')->group(function () {
     Route::post('/vouchers/generate', [AdminController::class, 'generateVouchers']);
     Route::post('/vouchers/{voucher}/retry', [AdminController::class, 'retryVoucher']);
     Route::post('/vouchers/{voucher}/disable', [AdminController::class, 'disableVoucher']);
+    Route::get('/vouchers/{voucher}/device-events', [AdminController::class, 'voucherEvents']);
+    Route::post('/vouchers/{voucher}/release-device', [AdminController::class, 'releaseDevice'])->middleware('throttle:voucher-admin');
+    Route::post('/vouchers/{voucher}/transfer/approve', [AdminController::class, 'approveTransfer'])->middleware('throttle:voucher-admin');
+    Route::post('/vouchers/{voucher}/transfer/reject', [AdminController::class, 'rejectTransfer'])->middleware('throttle:voucher-admin');
+    Route::post('/vouchers/{voucher}/rotate-credentials', [AdminController::class, 'rotateCredentials'])->middleware('throttle:voucher-admin');
+    Route::post('/vouchers/{voucher}/recovery-pin', [AdminController::class, 'issueRecovery'])->middleware('throttle:voucher-admin');
     Route::get('/sessions', [AdminController::class, 'sessions']);
     Route::post('/sessions/{session}/disconnect', [AdminController::class, 'disconnectSession']);
 });

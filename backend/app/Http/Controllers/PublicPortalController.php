@@ -36,12 +36,7 @@ class PublicPortalController extends Controller
             'device_mac' => ['nullable', 'regex:/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/'],
         ]);
         $plan = Plan::where('active', true)->findOrFail($data['plan_id']);
-        $phone = preg_replace('/\D+/', '', $data['phone']);
-        if (preg_match('/^0[67]\d{8}$/', $phone)) $phone = '255' . substr($phone, 1);
-        elseif (preg_match('/^[67]\d{8}$/', $phone)) $phone = '255' . $phone;
-        elseif (!preg_match('/^255[67]\d{8}$/', $phone)) {
-            throw ValidationException::withMessages(['phone' => 'Enter a valid Tanzania mobile number.']);
-        }
+        $phone = \App\Services\PhoneNormalizer::normalize($data['phone']);
 
         $order = Order::create([
             'uuid' => (string) Str::uuid(),
@@ -209,22 +204,8 @@ class PublicPortalController extends Controller
         $order = Order::with('voucher')->where('uuid', $uuid)->firstOrFail();
         $voucher = $order->voucher;
         if (!$voucher) return ['state' => 'offline'];
-        if (in_array($voucher->status, ['disabled', 'revoked'], true)) return ['state' => 'unavailable'];
-        if ($voucher->status === 'expired' || $voucher->expires_at?->isPast()) return ['state' => 'expired'];
-
-        $mac = strtoupper($data['device_mac'] ?? $order->device_mac ?? $voucher->device_mac ?? '');
-        if ($mac && $voucher->device_mac && $mac !== strtoupper($voucher->device_mac)) {
-            return ['state' => 'device_mismatch'];
-        }
-        try {
-            $online = collect($mikrotik->activeSessions())->contains(fn ($active) =>
-                ($active['user'] ?? null) === $voucher->code
-                && (!$mac || strtoupper($active['mac-address'] ?? '') === $mac));
-        } catch (Throwable $e) {
-            report($e);
-            return response()->json(['state' => 'router_unavailable'], 503);
-        }
-        return ['state' => $online ? 'online' : 'offline'];
+        $result=app(\App\Services\VoucherConnectionService::class)->connection($voucher, $data['device_mac'] ?? null);
+        return response()->json($result,$result['state']==='router_unavailable' ? 503:200);
     }
 
     public function prepareConnection(
@@ -265,72 +246,12 @@ class PublicPortalController extends Controller
             ], 202);
         }
 
-        if ($voucher->expires_at && $voucher->expires_at->isPast()) {
-            $voucher->forceFill(['status' => 'expired'])->save();
-            return response()->json(['state' => 'expired'], 409);
-        }
-
-        if (in_array($voucher->status, ['expired'], true)) {
-            return response()->json(['state' => 'expired'], 409);
-        }
-
-        if (in_array($voucher->status, ['disabled', 'revoked'], true)) {
-            return response()->json(['state' => 'unavailable'], 409);
-        }
-
-        $requestMac = isset($data['device_mac']) && $data['device_mac']
-            ? strtoupper($data['device_mac'])
-            : null;
-
-        if ($requestMac && $voucher->device_mac && strtoupper($voucher->device_mac) !== $requestMac) {
-            return response()->json(['state' => 'device_mismatch'], 409);
-        }
-
-        if ($voucher->status === 'provision_pending') {
-            $voucher = $provisioner->provision($voucher);
-        }
-
-        if ($voucher->status === 'provision_pending') {
-            try {
-                $mikrotik->resource();
-            } catch (Throwable $e) {
-                return response()->json([
-                    'state' => 'router_unavailable',
-                    'message' => 'The Wi-Fi router is temporarily unavailable.',
-                ], 503);
-            }
-
-            return response()->json([
-                'state' => 'preparing',
-                'message' => 'Your internet access is still being prepared.',
-            ], 202);
-        }
-
-        try {
-            $mikrotik->resource();
-        } catch (Throwable $e) {
-            return response()->json([
-                'state' => 'router_unavailable',
-                'message' => 'The Wi-Fi router is temporarily unavailable.',
-            ], 503);
-        }
-
-        $loginUrl = $data['login_url'] ?? null;
-        $routerHost = parse_url((string) config('mikrotik.base_url'), PHP_URL_HOST);
-        $trustedLogin = $loginUrl && $routerHost
-            && strcasecmp((string) parse_url($loginUrl, PHP_URL_HOST), (string) $routerHost) === 0
-            && in_array(parse_url($loginUrl, PHP_URL_SCHEME), ['http', 'https'], true)
-            && in_array(parse_url($loginUrl, PHP_URL_PORT), [null, 80, 443], true)
-            && parse_url($loginUrl, PHP_URL_PATH) === '/login'
-            && !parse_url($loginUrl, PHP_URL_USER)
-            && !parse_url($loginUrl, PHP_URL_QUERY)
-            && !parse_url($loginUrl, PHP_URL_FRAGMENT);
-
-        return response()->json([
-            'state' => $voucher->status === 'active' ? 'active' : 'ready',
-            'voucher_status' => $voucher->status,
-            'login_url' => $trustedLogin ? $loginUrl : null,
-        ]);
+        $result = app(\App\Services\VoucherConnectionService::class)->prepare($voucher, $data['device_mac'] ?? null, $data['login_url'] ?? null);
+        $status = match ($result['state']) {
+            'router_unavailable' => 503, 'preparing' => 202,
+            'expired', 'unavailable', 'device_mismatch' => 409, default => 200,
+        };
+        return response()->json($result, $status);
     }
 
     private function orderPayload(Order $order): array
@@ -349,18 +270,22 @@ class PublicPortalController extends Controller
             'amount' => $order->amount,
             'currency' => $order->currency,
             'phone' => $order->customer_phone,
+            'masked_phone' => \App\Services\VoucherAccessService::maskPhone($order->customer_phone),
             'device_mac' => $order->device_mac,
             'plan' => $order->plan,
             'payment' => $payment,
             'payment_push_expires_at' => $payment && $payment->status === 'pending' ? now()->setTimestamp($lastPush + 300)->toIso8601String() : null,
             'voucher' => $order->voucher ? [
+                'uuid' => $order->voucher->uuid,
+                'recovery_issued' => (bool) $order->voucher->recovery_pin_issued_at,
                 'code' => $order->voucher->code,
                 'password' => $order->voucher->secret,
                 'status' => $order->voucher->status,
                 'device_mac' => $order->voucher->device_mac,
+                'masked_device_mac' => \App\Services\VoucherAccessService::maskMac($order->voucher->device_mac),
                 'activated_at' => $order->voucher->activated_at,
                 'expires_at' => $order->voucher->expires_at,
-                'provision_error' => $order->voucher->provision_error,
+                'provision_error' => $order->voucher->provision_error ? 'Wi-Fi setup is awaiting a retry.' : null,
             ] : null,
         ];
     }

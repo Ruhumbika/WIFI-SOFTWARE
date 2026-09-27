@@ -65,9 +65,7 @@ onMounted(load);
   <AdminShell>
     <div class="dashboard-head">
       <div>
-        <div class="dashboard-eyebrow">Operations</div>
         <h1>Dashboard</h1>
-        <p>Payments, vouchers and network health in one place.</p>
       </div>
       <button class="refresh-button" :disabled="loading" @click="load">
         <i class="bi bi-arrow-clockwise" :class="{ spinning: loading }"></i
@@ -75,17 +73,11 @@ onMounted(load);
       </button>
     </div>
 
-    <section class="ops-card quick-start mb-3" aria-label="Start selling internet">
-      <div class="ops-card__head">
-        <div><span class="dashboard-eyebrow">Start selling</span><h2>Four simple steps</h2></div>
-      </div>
-      <div class="quick-start__grid">
-        <router-link to="/admin/router"><span class="quick-start__number">1</span><strong>Connect router</strong><small>{{ routerHealth.connected ? 'Connected' : 'Test and save your MikroTik' }}</small></router-link>
-        <router-link to="/admin/plans"><span class="quick-start__number">2</span><strong>Create a plan</strong><small>Set time, data, speed and price</small></router-link>
-        <router-link to="/admin/vouchers"><span class="quick-start__number">3</span><strong>Print tickets</strong><small>Generate and print from this device</small></router-link>
-        <router-link to="/admin/payments"><span class="quick-start__number">4</span><strong>Track sales</strong><small>Review payments and customers</small></router-link>
-      </div>
-    </section>
+    <nav class="dashboard-actions mb-3" aria-label="Quick actions">
+      <router-link to="/admin/vouchers"><i class="bi bi-ticket-perforated" aria-hidden="true"></i> Vouchers</router-link>
+      <router-link to="/admin/plans"><i class="bi bi-grid" aria-hidden="true"></i> Plans</router-link>
+      <router-link to="/admin/router"><i class="bi bi-router" aria-hidden="true"></i> Router</router-link>
+    </nav>
 
     <div class="dashboard-stats">
       <router-link to="/admin/sessions" class="dashboard-stat">
@@ -128,8 +120,7 @@ onMounted(load);
       <section class="ops-card system-health">
         <div class="ops-card__head">
           <div>
-            <span class="dashboard-eyebrow">System health</span>
-            <h2>Network status</h2>
+            <h2>Network</h2>
           </div>
           <span
             class="health-badge"
@@ -173,14 +164,14 @@ onMounted(load);
           </div>
         </details>
         <router-link to="/admin/router" class="card-action"
-          >Router status and diagnostics <i class="bi bi-arrow-right"></i
+          >Details <i class="bi bi-arrow-right"></i
         ></router-link>
       </section>
 
       <section class="ops-card attention-card">
         <div class="ops-card__head">
           <div>
-            <span class="dashboard-eyebrow">Attention required</span>
+            <span class="dashboard-eyebrow">Attention</span>
             <h2>
               {{
                 attentionCount
@@ -196,7 +187,7 @@ onMounted(load);
         <div v-if="attentionCount" class="attention-list">
           <router-link v-if="!routerHealth.connected" to="/admin/router">
             <span class="attention-icon"><i class="bi bi-router"></i></span>
-            <span><strong>Router unavailable</strong><small>Check the RouterOS REST connection before provisioning.</small></span>
+            <span><strong>Router unavailable</strong></span>
             <i class="bi bi-chevron-right"></i>
           </router-link>
           <router-link v-if="dashboard.pending_provision" to="/admin/vouchers?status=pending">
@@ -206,10 +197,7 @@ onMounted(load);
                 >{{ dashboard.pending_provision }} voucher{{
                   dashboard.pending_provision === 1 ? "" : "s"
                 }}
-                need provisioning</strong
-              ><small
-                >Retry router setup without charging the customer again.</small
-              ></span
+                need setup</strong></span
             >
             <i class="bi bi-chevron-right"></i>
           </router-link>
@@ -222,17 +210,14 @@ onMounted(load);
                 >{{ dashboard.failed_payments }} failed payment{{
                   dashboard.failed_payments === 1 ? "" : "s"
                 }}
-                today</strong
-              ><small
-                >Review transaction status and customer impact.</small
-              ></span
+                today</strong></span
             >
             <i class="bi bi-chevron-right"></i>
           </router-link>
         </div>
         <div v-else class="all-clear">
           <i class="bi bi-check-circle-fill"></i
-          ><span>No operational issues need your attention.</span>
+          ><span>No issues.</span>
         </div>
       </section>
     </div>
@@ -240,7 +225,6 @@ onMounted(load);
     <section class="ops-card mt-3">
       <div class="ops-card__head recent-head">
         <div>
-          <span class="dashboard-eyebrow">Latest activity</span>
           <h2>Recent payments</h2>
         </div>
         <router-link to="/admin/payments">View all</router-link>
@@ -258,7 +242,7 @@ onMounted(load);
             <strong>{{
               payment.order?.plan?.name || "Internet package"
             }}</strong>
-            <span><i class="bi bi-telephone" aria-hidden="true"></i> Customer: <strong>{{ displayPhone(payment.order?.customer_phone) }}</strong></span>
+            <span>{{ displayPhone(payment.order?.customer_phone) }}</span>
           </div>
           <div class="recent-row__amount">
             <strong
@@ -275,26 +259,9 @@ onMounted(load);
 </template>
 
 <style scoped>
-.quick-start__grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-.quick-start__grid a {
-  display: grid;
-  gap: 5px;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  border-radius: 14px;
-  background: #eef3f9;
-  box-shadow: 4px 4px 9px #cbd5df, -4px -4px 9px #fff;
-  color: #0f172a;
-  text-decoration: none;
-}
-.quick-start__grid a:hover, .quick-start__grid a:focus-visible { border-color: #0f9675; }
-.quick-start__grid small { color: #64748b; font-weight: 400; }
-.quick-start__number { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: #e8f7f1; color: #08745b; font-weight: 800; }
-@media (max-width: 700px) { .quick-start__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.dashboard-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.dashboard-actions a { display:flex; flex:1; justify-content:center; align-items:center; gap:8px; min-height:44px; padding:9px 14px; border:1px solid #f7fbff; border-radius:14px; background:#eef3f9; box-shadow:4px 4px 9px #cbd5df,-4px -4px 9px #fff; color:#196b97; text-decoration:none; font-size:13px; font-weight:700; }
+.dashboard-actions a:focus-visible { outline:2px solid #196b97; outline-offset:3px; }
 .dashboard-head {
   display: flex;
   align-items: flex-start;
@@ -646,5 +613,18 @@ onMounted(load);
   .spinning {
     animation: none;
   }
+}
+@media (max-width: 767.98px) {
+  .dashboard-stat { min-height: 108px; padding: 12px; border-radius: 16px; }
+  .dashboard-stat__icon { width: 28px; height: 28px; border-radius: 9px; }
+  .dashboard-stat__label { margin-top: 8px; }
+  .dashboard-stat strong { font-size: 1.35rem; overflow-wrap: anywhere; }
+  .ops-card { padding: 12px; border-radius: 16px; min-width: 0; }
+  .health-list { gap: 8px; margin-top: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .health-list div { padding: 9px; overflow-wrap: anywhere; }
+  .recent-row { gap: 8px; padding: 9px 0; }
+  .recent-row__icon { width: 28px; height: 28px; border-radius: 9px; }
+  .recent-row__main span { font-size: 0.75rem; }
+  .recent-row__amount { max-width: 100px; overflow-wrap: anywhere; }
 }
 </style>

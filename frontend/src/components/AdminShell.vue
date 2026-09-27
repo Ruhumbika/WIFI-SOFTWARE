@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onBeforeUnmount, ref } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../api";
 
@@ -7,9 +7,12 @@ const router = useRouter();
 const moreOpen = ref(false);
 const advancedAllowed = ref(false);
 onMounted(async () => {
+  document.documentElement.classList.add("admin-page");
   try { advancedAllowed.value = (await api.get('/admin/router/advanced/permission')).data.allowed === true }
   catch { advancedAllowed.value = false }
 });
+
+onBeforeUnmount(() => document.documentElement.classList.remove("admin-page"));
 
 async function logout() {
   try {
@@ -60,7 +63,6 @@ async function logout() {
       <header class="admin-mobile-header d-lg-none">
         <div>
           <div class="brand">RJAY Hotspot</div>
-          <small>Admin Console</small>
         </div>
         <button
           type="button"
@@ -194,13 +196,15 @@ async function logout() {
 }
 .admin-main {
   min-height: 100vh;
+  min-width: 0;
 }
 .admin-content {
-  padding: 20px 16px 92px;
+  min-width: 0;
+  padding: 12px 12px calc(80px + env(safe-area-inset-bottom));
 }
 .admin-mobile-header {
   display: flex;
-  min-height: 66px;
+  min-height: 56px;
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
@@ -243,7 +247,7 @@ async function logout() {
 .admin-bottom-nav a,
 .admin-bottom-nav button {
   display: flex;
-  min-height: 54px;
+  min-height: 48px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -273,6 +277,8 @@ async function logout() {
 }
 .admin-sheet__panel {
   width: 100%;
+  max-height: 85dvh;
+  overflow-y: auto;
   padding: 10px 14px calc(18px + env(safe-area-inset-bottom));
   border-radius: 24px 24px 0 0;
   background: #fff;

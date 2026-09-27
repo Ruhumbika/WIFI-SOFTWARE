@@ -15,6 +15,22 @@ const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
 const notice = ref('')
+const security = ref<any>({events:[],transfer_requests:[],operations:[]})
+const recoveryPin = ref('')
+const pendingTransfer = computed(() => security.value.transfer_requests.find((item: any) => item.status === 'pending'))
+async function action(name: string, existingKey?: string) {
+  if (!confirm(name === 'recovery-pin' ? 'Issue/reset recovery access? The PIN is shown once and existing voucher access tokens will expire.' : 'Confirm this voucher action? Device release and rotation disconnect current sessions. Validity will not restart.')) return
+  busy.value=true; error.value=''; notice.value=''
+  try {
+    const saved = security.value.operations.find((op: any) => op.state !== 'completed')
+    const requestKey = existingKey || saved?.request_key || crypto.randomUUID()
+    const { data } = await api.post(`/admin/vouchers/${route.params.id}/${name}`, { request_key:requestKey, transfer_request_id:pendingTransfer.value?.id, reset:!!voucher.value.recovery_pin_issued_at })
+    if (data.recovery_pin) recoveryPin.value=data.recovery_pin
+    notice.value=data.state === 'pending_reconciliation' ? data.message : 'Action completed.'
+    await load()
+  } catch { error.value='Action could not be completed. Refresh the voucher and retry; do not assume router changes succeeded.' }
+  finally { busy.value=false }
+}
 const printTemplate = ref<'cards' | 'thermal'>('cards')
 const nowTick = ref(Date.now())
 let clockTimer: number | undefined
@@ -33,7 +49,10 @@ async function printVoucher() {
 
 async function load() {
   loading.value = true
-  try { voucher.value = (await api.get('/admin/vouchers/' + route.params.id)).data }
+  try {
+    voucher.value = (await api.get('/admin/vouchers/' + route.params.id)).data
+    security.value = (await api.get('/admin/vouchers/' + route.params.id + '/device-events')).data
+  }
   catch { error.value = 'Voucher details are unavailable.' }
   finally { loading.value = false }
 }
@@ -100,6 +119,27 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
               <li v-if="voucher.device_mac && voucher.activated_at">Device bound · {{ formatDate(voucher.activated_at) }}</li>
               <li v-for="session in voucher.sessions || []" :key="session.id">Session started · {{ formatDate(session.started_at) }}</li>
             </ul>
+          </section>
+          <section class="card p-3 mb-3">
+            <h2 class="h5">Device recovery and security</h2>
+            <p>Transfers: {{ voucher.transfer_count || 0 }}</p>
+            <p v-if="voucher.compromised_at" class="alert alert-warning">Owner reported compromised credentials {{ formatDate(voucher.compromised_at) }}.</p>
+            <div v-if="recoveryPin" class="alert alert-warning"><strong>Recovery PIN: {{ recoveryPin }}</strong><p>Hand this to the owner now. It will not be shown again.</p><button class="btn btn-outline-dark" @click="recoveryPin=''">Handed over</button></div>
+            <div v-if="pendingTransfer" class="alert alert-info">
+              <p>Transfer requested {{ formatDate(pendingTransfer.requested_at) }}. {{ pendingTransfer.reason }}</p>
+              <button class="btn btn-primary me-2" :disabled="busy" @click="action('transfer/approve')">Approve transfer</button>
+              <button class="btn btn-outline-danger" :disabled="busy" @click="action('transfer/reject')">Reject transfer</button>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <button v-if="voucher.device_mac && canPrint" class="btn btn-outline-warning" :disabled="busy" @click="action('release-device')">Release device</button>
+              <button v-if="canPrint" class="btn btn-outline-danger" :disabled="busy" @click="action('rotate-credentials')">Rotate voucher PIN</button>
+              <button v-if="voucher.customer_phone" class="btn btn-outline-primary" :disabled="busy || !!recoveryPin" @click="action('recovery-pin')">{{ voucher.recovery_pin_issued_at ? 'Reset recovery PIN' : 'Issue recovery PIN' }}</button>
+            </div>
+            <div v-for="op in security.operations.filter((item: any) => item.state !== 'completed')" :key="op.id" class="alert alert-warning mt-3">
+              Router operation needs reconciliation. Retry to confirm completion.
+              <button class="btn btn-outline-dark" :disabled="busy" @click="action(op.action === 'rotate' ? 'rotate-credentials' : (op.transfer_request_id ? 'transfer/approve' : 'release-device'), op.request_key)">Retry operation</button>
+            </div>
+            <details class="mt-3"><summary>Recent security events</summary><p v-if="!security.events.length">No events recorded.</p><ul><li v-for="event in security.events" :key="event.id">{{ event.event_type.replaceAll('_',' ') }} · {{ formatDate(event.occurred_at) }}<span v-if="event.attempted_mac"> · {{ event.attempted_mac }}</span></li></ul></details>
           </section>
           <div class="d-flex flex-wrap gap-2">
             <button v-if="voucher.status === 'provision_pending'" class="btn btn-primary" :disabled="busy" @click="retry">Retry provisioning</button>

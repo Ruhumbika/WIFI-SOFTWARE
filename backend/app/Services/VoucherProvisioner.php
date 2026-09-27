@@ -26,31 +26,36 @@ class VoucherProvisioner
 
     public function provision(Voucher $voucher): Voucher
     {
-        try {
-            $response = $this->mikrotik->createVoucherUser($voucher);
-            $voucher->forceFill([
-                'mikrotik_id' => $response['.id'] ?? $voucher->mikrotik_id,
-                'status' => 'ready',
-                'provisioned_at' => now(),
-                'provision_error' => null,
-            ])->save();
-        } catch (Throwable $e) {
-            $voucher->forceFill([
-                'status' => 'provision_pending',
-                'provision_error' => mb_substr($e->getMessage(), 0, 1000),
-            ])->save();
-        }
-
-        if ($voucher->status === 'ready' && $voucher->order_id) {
-            $order = $voucher->order()->first();
-            if ($order && $order->paid_at && $order->status !== 'completed') {
-                $order->forceFill([
-                    'status' => 'completed',
-                    'completed_at' => $voucher->provisioned_at ?? now(),
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($voucher) {
+            $voucher = Voucher::lockForUpdate()->findOrFail($voucher->id);
+            if ($voucher->status !== 'provision_pending') return $voucher->fresh('plan');
+            try {
+                $response = $this->mikrotik->createVoucherUser($voucher);
+                if (empty($response['.id'])) throw new \RuntimeException('Router did not confirm voucher creation.');
+                $voucher->forceFill([
+                    'mikrotik_id' => $response['.id'] ?? $voucher->mikrotik_id,
+                    'status' => 'ready',
+                    'provisioned_at' => now(),
+                    'provision_error' => null,
+                ])->save();
+            } catch (Throwable $e) {
+                $voucher->forceFill([
+                    'status' => 'provision_pending',
+                    'provision_error' => 'Router could not confirm voucher provisioning. Retry when available.',
                 ])->save();
             }
-        }
 
-        return $voucher->fresh('plan');
+            if ($voucher->status === 'ready' && $voucher->order_id) {
+                $order = $voucher->order()->first();
+                if ($order && $order->paid_at && $order->status !== 'completed') {
+                    $order->forceFill([
+                        'status' => 'completed',
+                        'completed_at' => $voucher->provisioned_at ?? now(),
+                    ])->save();
+                }
+            }
+
+            return $voucher->fresh('plan');
+        });
     }
 }

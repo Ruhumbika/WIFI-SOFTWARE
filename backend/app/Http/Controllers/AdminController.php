@@ -170,13 +170,24 @@ class AdminController extends Controller
 
     public function generateVouchers(Request $request, VoucherProvisioner $provisioner)
     {
-        $data = $request->validate(['plan_id' => ['required', 'exists:plans,id'], 'quantity' => ['required', 'integer', 'min:1', 'max:100']]);
+        $data = $request->validate(['plan_id' => ['required', 'exists:plans,id'], 'quantity' => ['required', 'integer', 'min:1', 'max:100'], 'phone'=>['nullable','string','max:24']]);
+        $phone = empty($data['phone']) ? null : \App\Services\PhoneNormalizer::normalize($data['phone']);
+        $created = \Illuminate\Support\Facades\DB::transaction(function () use ($data, $phone, $provisioner, $request) {
+            $items = [];
+            for ($i = 0; $i < $data['quantity']; $i++) {
+                $voucher = $provisioner->createVoucher(['plan_id' => $data['plan_id'], 'customer_phone' => $phone]);
+                \App\Services\VoucherEvents::record($voucher, 'manual_voucher_created', null, $request->user()->id);
+                $pin = $phone ? app(\App\Services\VoucherRecoveryService::class)->issue($voucher, false, $request->user()->id) : null;
+                $items[] = ['voucher' => $voucher, 'recovery_pin' => $pin];
+            }
+            return $items;
+        });
         $rows = [];
-        for ($i = 0; $i < $data['quantity']; $i++) {
-            $v = $provisioner->createVoucher(['plan_id' => $data['plan_id']]);
-            $rows[] = $provisioner->provision($v);
+        foreach ($created as $item) {
+            $voucher = $provisioner->provision($item['voucher']);
+            $rows[] = array_merge($voucher->toArray(), ['password' => $voucher->secret, 'recovery_pin' => $item['recovery_pin']]);
         }
-        return response()->json(collect($rows)->map(fn(Voucher $v) => array_merge($v->toArray(), ['password' => $v->secret]))->values(), 201);
+        return response()->json($rows,201)->header('Cache-Control','no-store');
     }
 
     public function retryVoucher(Voucher $voucher, VoucherProvisioner $provisioner)
@@ -188,7 +199,11 @@ class AdminController extends Controller
     public function disableVoucher(Voucher $voucher, MikrotikRestClient $mikrotik)
     {
         abort_if(in_array($voucher->status, ['revoked', 'expired'], true), 409, 'Voucher is already unavailable.');
-        return $this->blockVoucher($voucher, $mikrotik);
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($voucher,$mikrotik) {
+            $locked=Voucher::lockForUpdate()->findOrFail($voucher->id);
+            abort_if(\App\Models\VoucherDeviceOperation::where('voucher_id',$locked->id)->where('state','!=','completed')->exists(),409,'Resolve the pending router operation first.');
+            return $this->blockVoucher($locked,$mikrotik);
+        });
     }
 
     private function blockVoucher(Voucher $voucher, MikrotikRestClient $mikrotik)
@@ -199,7 +214,8 @@ class AdminController extends Controller
             if ($routerUser && !in_array(strtolower((string) ($routerUser['disabled'] ?? '')), ['true', 'yes', '1'], true)) {
                 return response()->json(['message' => 'Router did not confirm that the voucher was disabled. Check the router before retrying.'], 503);
             }
-            $voucher->forceFill(['status' => 'disabled'])->save();
+            $voucher->forceFill(['status' => 'disabled', 'recovery_token_version'=>$voucher->recovery_token_version+1])->save();
+            \App\Services\VoucherEvents::record($voucher,'voucher_disabled',null,request()->user()?->id);
             foreach ($mikrotik->activeSessions() as $active) {
                 if (($active['user'] ?? null) === $voucher->code && isset($active['.id'])) $mikrotik->disconnect($active['.id']);
             }
@@ -221,6 +237,40 @@ class AdminController extends Controller
                     ? 'Router rejected voucher disable (HTTP ' . $detail[1] . '). No successful block was recorded.'
                     : 'Router could not confirm that the voucher was disabled. No successful block was recorded.')], 503);
         }
+    }
+
+    public function voucherEvents(Voucher $voucher) {
+        return [
+            'events'=>\Illuminate\Support\Facades\DB::table('voucher_events')->where('voucher_id',$voucher->id)->latest('id')->limit(50)->get(),
+            'transfer_requests'=>\Illuminate\Support\Facades\DB::table('voucher_device_transfer_requests')->where('voucher_id',$voucher->id)->latest('id')->limit(20)->get(),
+            'operations'=>\App\Models\VoucherDeviceOperation::where('voucher_id',$voucher->id)->latest('id')->limit(10)->get(),
+        ];
+    }
+    private function deviceOperation(Request $request, Voucher $voucher, string $action, ?int $transfer = null) {
+        $data=$request->validate(['request_key'=>'required|uuid']);
+        $result=app(\App\Services\VoucherDeviceService::class)->operate($voucher,$action,$data['request_key'],$request->user()->id,$transfer);
+        return response()->json($result,$result['state']==='completed' ? 200:202);
+    }
+    public function releaseDevice(Request $request, Voucher $voucher) { return $this->deviceOperation($request,$voucher,'release'); }
+    public function rotateCredentials(Request $request, Voucher $voucher) { return $this->deviceOperation($request,$voucher,'rotate'); }
+    public function approveTransfer(Request $request, Voucher $voucher) {
+        $data=$request->validate(['transfer_request_id'=>'required|integer']);
+        return $this->deviceOperation($request,$voucher,'release',$data['transfer_request_id']);
+    }
+    public function rejectTransfer(Request $request, Voucher $voucher) {
+        $data=$request->validate(['transfer_request_id'=>'required|integer']);
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($request,$voucher,$data) {
+            $v=Voucher::lockForUpdate()->findOrFail($voucher->id);
+            abort_if(\App\Models\VoucherDeviceOperation::where('voucher_id',$v->id)->where('state','!=','completed')->exists(),409,'Resolve the pending router operation first.');
+            $updated=\Illuminate\Support\Facades\DB::table('voucher_device_transfer_requests')->where('id',$data['transfer_request_id'])->where('voucher_id',$v->id)->where('status','pending')->update(['status'=>'rejected','resolved_at'=>now(),'resolved_by'=>$request->user()->id,'updated_at'=>now()]);
+            abort_unless($updated,409,'No pending transfer.');
+            \App\Services\VoucherEvents::record($v,'device_transfer_rejected',null,$request->user()->id);
+            return ['state'=>'completed'];
+        });
+    }
+    public function issueRecovery(Request $request, Voucher $voucher) {
+        $data=$request->validate(['reset'=>'sometimes|boolean']);
+        return response()->json(['recovery_pin'=>app(\App\Services\VoucherRecoveryService::class)->issue($voucher,$data['reset']??false,$request->user()->id)])->header('Cache-Control','no-store');
     }
 
     public function payments()

@@ -3,7 +3,7 @@ export const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('rjay_admin_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
-  if (config.url?.startsWith('/public/orders/')) {
+  if ((config.url?.startsWith('/public/orders/') || config.url?.startsWith('/public/vouchers/'))) {
     const orderToken = sessionStorage.getItem('rjay_order_token')
     if (orderToken) config.headers['X-Order-Token'] = orderToken
   }
