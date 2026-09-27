@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { usePortalLanguage } from '../../i18n/portalLanguage'
+const { t, formatDate } = usePortalLanguage()
 import { computed, onUnmounted, ref } from "vue";
-import { formatDate } from "../../utils/formatDate";
 import { voucherTimeLeft } from "../../utils/voucherTime";
 
 interface Voucher {
@@ -161,54 +162,54 @@ onUnmounted(() => window.clearTimeout(copyResetTimer));
   >
     <div class="voucher-ticket__head">
       <div>
-        <div class="voucher-ticket__eyebrow">Your voucher</div>
+        <div class="voucher-ticket__eyebrow"> {{ t("Your voucher") }} </div>
         <div class="voucher-ticket__package">
           {{ plan?.name || "RJAY WiFi access" }}
         </div>
       </div>
       <span class="voucher-ticket__status" :class="`is-${statusTone}`">
-        <span aria-hidden="true"></span>{{ statusLabel }}<time v-if="activeTimeLeft" aria-live="off" title="Package time left">· {{ activeTimeLeft }} left</time>
+        <span aria-hidden="true"></span>{{ t(statusLabel) }}<time v-if="activeTimeLeft" aria-live="off" :title="t('Package time left')">· {{ t(activeTimeLeft) }} {{ t("left") }} </time>
       </span>
     </div>
 
     <div class="voucher-ticket__summary">
-      <strong>{{ priceLabel }}</strong>
+      <strong>{{ t(priceLabel) }}</strong>
       <div class="voucher-ticket__facts">
         <span v-if="durationLabel"
           ><i class="bi bi-clock" aria-hidden="true"></i
-          >{{ durationLabel }}</span
+          >{{ t(durationLabel) }}</span
         >
         <span v-if="speedLabel"
           ><i class="bi bi-speedometer2" aria-hidden="true"></i
           >{{ speedLabel }}</span
         >
         <span v-if="dataLabel"><i class="bi bi-database" aria-hidden="true"></i>{{ dataLabel }}</span>
-        <span><i class="bi bi-phone" aria-hidden="true"></i>1 device</span>
+        <span><i class="bi bi-phone" aria-hidden="true"></i> {{ t("1 device") }} </span>
       </div>
     </div>
 
     <div class="voucher-ticket__tear" aria-hidden="true"></div>
 
     <div class="voucher-ticket__body">
-      <div class="voucher-ticket__code-label">Voucher code</div>
+      <div class="voucher-ticket__code-label"> {{ t("Voucher code") }} </div>
       <button
         type="button"
         class="voucher-ticket__copy"
         :class="{ 'is-copied': copied }"
-        :aria-label="copied ? 'Voucher code copied' : 'Copy voucher code'"
+        :aria-label="t(copied ? 'Voucher code copied' : 'Copy voucher code')"
         @click="copyCode"
       >
         <strong>{{ voucher.code }}</strong>
         <span aria-live="polite">
           <template v-if="copied"
-            ><i class="bi bi-check-lg" aria-hidden="true"></i>Copied!</template
+            ><i class="bi bi-check-lg" aria-hidden="true"></i> {{ t("Copied!") }} </template
           >
           <template v-else
-            ><i class="bi bi-copy" aria-hidden="true"></i>Copy</template
+            ><i class="bi bi-copy" aria-hidden="true"></i> {{ t("Copy") }} </template
           >
         </span>
       </button>
-      <p v-if="copyError" class="text-danger small mt-2" role="alert">Could not copy the code. Select it and copy it manually.</p>
+      <p v-if="copyError" class="text-danger small mt-2" role="alert"> {{ t("Could not copy the code. Select it and copy it manually.") }} </p>
 
       <div v-if="voucher.password" class="voucher-ticket__pin">
         <span>PIN</span><strong>{{ voucher.password }}</strong>
@@ -227,7 +228,7 @@ onUnmounted(() => window.clearTimeout(copyResetTimer));
           aria-hidden="true"
         ></span>
         <i v-else class="bi bi-wifi" aria-hidden="true"></i>
-        {{ connecting ? "Connecting…" : connectLabel }}
+        {{ t(connecting ? "Connecting…" : connectLabel) }}
       </button>
 
       <button
@@ -236,7 +237,7 @@ onUnmounted(() => window.clearTimeout(copyResetTimer));
         :aria-expanded="detailsOpen"
         @click="detailsOpen = !detailsOpen"
       >
-        <span>Voucher details</span>
+        <span> {{ t("Voucher details") }} </span>
         <i
           class="bi bi-chevron-down"
           :class="{ 'is-open': detailsOpen }"
@@ -247,24 +248,22 @@ onUnmounted(() => window.clearTimeout(copyResetTimer));
       <Transition name="voucher-details">
         <div v-if="detailsOpen" class="voucher-ticket__details">
           <ul>
-            <li v-for="term in terms" :key="term">{{ term }}</li>
+            <li v-for="term in terms" :key="term">{{ t(term) }}</li>
           </ul>
           <div v-if="voucher.device_mac" class="voucher-ticket__detail-row">
-            <span>Device</span><strong>{{ voucher.device_mac }}</strong>
+            <span> {{ t("Device") }} </span><strong>{{ voucher.device_mac }}</strong>
           </div>
           <div v-if="voucher.expires_at" class="voucher-ticket__detail-row">
-            <span>Expires</span><strong>{{ formatDate(voucher.expires_at) }}</strong>
+            <span> {{ t("Expires") }} </span><strong>{{ formatDate(voucher.expires_at) }}</strong>
           </div>
           <div
             v-else-if="!voucher.activated_at"
             class="voucher-ticket__detail-row"
           >
-            <span>Validity</span><strong>Starts on first login</strong>
+            <span> {{ t("Validity") }} </span><strong> {{ t("Starts on first login") }} </strong>
           </div>
           <div v-if="voucher.provision_error" class="voucher-ticket__notice">
-            <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
-            Internet setup needs attention. Your voucher is still safe.
-          </div>
+            <i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ t("Internet setup needs attention. Your voucher is still safe.") }} </div>
         </div>
       </Transition>
     </div>

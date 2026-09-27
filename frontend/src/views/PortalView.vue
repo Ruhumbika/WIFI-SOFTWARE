@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { providePortalLanguage } from '../i18n/portalLanguage'
+const { t, locale, toggleLanguage, languageLabel } = providePortalLanguage()
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { api } from "../api";
 import { formatPhoneInput } from "../utils/formatPhoneInput";
@@ -739,12 +741,12 @@ const browsingDestination = computed(() => {
 </script>
 
 <template>
-  <div class="portal-shell">
+  <div class="portal-shell" :lang="locale">
     <div class="portal-wrap">
       <header class="mobile-brand">
         <button
           class="mobile-brand__eye"
-          aria-label="Use a voucher"
+          :aria-label="t('Use a voucher')"
           @click="portalMode = 'redeem'"
         >
           <SignalEye :status="portalEyeStatus" />
@@ -752,28 +754,23 @@ const browsingDestination = computed(() => {
         <div>
           <h1>MWANAKITAA <span>KITONGA</span></h1>
         </div>
-        <span class="mobile-brand__secure" aria-label="Secure access"
-          ><i class="bi bi-shield-check" aria-hidden="true"></i
-        ></span>
+        <button type="button" class="portal-language" :aria-label="languageLabel" :title="languageLabel" @click="toggleLanguage">{{ locale === 'sw' ? 'EN' : 'SW' }}</button>
       </header>
       <main>
         <section class="access-shell">
-          <div class="access-tabs" role="group" aria-label="Voucher access">
+          <div class="access-tabs" role="group" :aria-label="t('Voucher access')">
             <button
               :class="{ active: portalMode !== 'recovery' }"
               :aria-pressed="portalMode !== 'recovery'"
               @click="portalMode = 'redeem'"
             >
-              <i class="bi bi-wifi" aria-hidden="true"></i> Use voucher
-            </button>
+              <i class="bi bi-wifi" aria-hidden="true"></i> {{ t("Use voucher") }} </button>
             <button
               :class="{ active: portalMode === 'recovery' }"
               :aria-pressed="portalMode === 'recovery'"
               @click="portalMode = 'recovery'"
             >
-              <i class="bi bi-ticket-perforated" aria-hidden="true"></i> My
-              vouchers
-            </button>
+              <i class="bi bi-ticket-perforated" aria-hidden="true"></i> {{ t("My vouchers") }} </button>
           </div>
           <VoucherAccessPanel
             v-if="!order || portalMode !== 'buy'"
@@ -789,9 +786,7 @@ const browsingDestination = computed(() => {
             v-else-if="order.voucher"
             class="btn btn-link w-100"
             @click="portalMode = 'recovery'"
-          >
-            My voucher
-          </button>
+          > {{ t("My voucher") }} </button>
         </section>
         <div class="purchase-flow">
           <section
@@ -804,30 +799,25 @@ const browsingDestination = computed(() => {
             aria-live="polite"
           >
             <template v-if="recoveryDisplay"
-              ><h2 class="h4">Recovery PIN: {{ recoveryDisplay }}</h2>
-              <p>
-                Keep this recovery PIN. You can use it to recover this voucher
-                later.
-              </p>
+              ><h2 class="h4"> {{ t("Recovery PIN:") }} {{ recoveryDisplay }}</h2>
+              <p> {{ t("Keep this recovery PIN. You can use it to recover this voucher later.") }} </p>
               <button
                 class="btn btn-primary"
                 @click="
                   recoveryDisplay = '';
                   prepareConnection();
                 "
-              >
-                I have saved it — Continue
-              </button></template
+              > {{ t("I have saved it — Continue") }} </button></template
             >
             <template v-else
-              ><p v-if="recoveryError">{{ recoveryError }}</p>
-              <p>Save a recovery PIN to find this voucher later.</p>
+              ><p v-if="recoveryError">{{ t(recoveryError) }}</p>
+              <p> {{ t("Save a recovery PIN to find this voucher later.") }} </p>
               <button
                 class="btn btn-outline-primary"
                 :disabled="recoveryBusy"
                 @click="issueRecovery"
               >
-                {{ recoveryBusy ? "Preparing…" : "Get recovery PIN once" }}
+                {{ t(recoveryBusy ? "Preparing…" : "Get recovery PIN once") }}
               </button></template
             >
           </section>
@@ -837,8 +827,8 @@ const browsingDestination = computed(() => {
             aria-live="polite"
           >
             <div class="status-eye"><SignalEye status="loading" /></div>
-            <h1>Tunakagua malipo yako</h1>
-            <p>Tafadhali subiri…</p>
+            <h1> {{ t("Tunakagua malipo yako") }} </h1>
+            <p> {{ t("Tafadhali subiri…") }} </p>
           </section>
 
           <section
@@ -847,11 +837,9 @@ const browsingDestination = computed(() => {
             aria-live="polite"
           >
             <div class="status-eye"><SignalEye status="error" /></div>
-            <h1>Hatujaweza kukagua malipo</h1>
-            <p>{{ restoreMessage }}</p>
-            <button class="primary-action mt-4" @click="retryRestore">
-              Jaribu tena
-            </button>
+            <h1> {{ t("Hatujaweza kukagua malipo") }} </h1>
+            <p>{{ t(restoreMessage) }}</p>
+            <button class="primary-action mt-4" @click="retryRestore"> {{ t("Jaribu tena") }} </button>
           </section>
 
           <section
@@ -859,21 +847,21 @@ const browsingDestination = computed(() => {
             class="portal-purchase-card"
           >
             <div class="plans-heading">
-              <h2>Buy internet</h2>
-              <span>Chagua kifurushi</span>
+              <h2> {{ t("Buy internet") }} </h2>
+              <span> {{ t("Chagua kifurushi") }} </span>
             </div>
 
             <div
               v-if="!plans.length && !error"
               class="plan-list"
-              aria-label="Tunapakia vifurushi"
+              :aria-label="t('Loading packages')"
             >
               <div v-for="n in 3" :key="n" class="plan-skeleton">
                 <span></span><span></span><span></span>
               </div>
             </div>
 
-            <div v-else class="plan-list" aria-label="Vifurushi vya intaneti">
+            <div v-else class="plan-list" :aria-label="t('Internet packages')">
               <button
                 v-for="plan in plans"
                 :key="plan.id"
@@ -883,7 +871,7 @@ const browsingDestination = computed(() => {
                   selected: selected?.id === plan.id,
                   recommended: plan.recommended,
                 }"
-                :aria-label="`${plan.name}, TZS ${Number(plan.price).toLocaleString()}. Weka namba ya malipo`"
+                :aria-label="`${plan.name}, TZS ${Number(plan.price).toLocaleString()}. ${t('Enter your payment number')}`"
                 @click="choosePlan(plan)"
               >
                 <div class="plan-option__main">
@@ -892,17 +880,17 @@ const browsingDestination = computed(() => {
                     <span
                       v-if="plan.recommended"
                       class="plan-option__recommended"
-                      >Popular</span
+                      > {{ t("Popular") }} </span
                     >
                   </div>
                   <div class="plan-option__meta">
                     <span
                       ><i class="bi bi-clock" aria-hidden="true"></i
-                      >{{ durationLabel(plan) }}</span
+                      >{{ t(durationLabel(plan)) }}</span
                     >
                     <span
                       ><i class="bi bi-speedometer2" aria-hidden="true"></i
-                      >{{ speedLabel(plan.rate_limit) }}</span
+                      >{{ t(speedLabel(plan.rate_limit)) }}</span
                     >
                     <span v-if="dataLabel(plan.data_limit_bytes)"
                       ><i class="bi bi-database" aria-hidden="true"></i
@@ -911,6 +899,7 @@ const browsingDestination = computed(() => {
                   </div>
                 </div>
                 <div class="plan-option__price">
+                  <del v-if="Number(plan.original_price) > Number(plan.price)" class="plan-original-price" :aria-label="t('Bei ya awali')">TZS {{ Number(plan.original_price).toLocaleString() }}</del>
                   <strong>{{ Number(plan.price).toLocaleString() }}</strong
                   ><span>TZS</span>
                   <i class="bi bi-arrow-right-circle" aria-hidden="true"></i>
@@ -923,7 +912,7 @@ const browsingDestination = computed(() => {
               class="alert alert-danger mt-3"
               role="alert"
             >
-              {{ error }}
+              {{ t(error) }}
             </div>
 
             <dialog
@@ -943,13 +932,13 @@ const browsingDestination = computed(() => {
                     </h2>
                     <p class="text-secondary mb-0">
                       <span class="price">TZS {{ selectedPrice }}</span> ·
-                      {{ durationLabel(selected) }}
+                      {{ t(durationLabel(selected)) }}
                     </p>
                   </div>
                   <button
                     type="button"
                     class="btn-close"
-                    aria-label="Funga"
+                    :aria-label="t('Funga')"
                     :disabled="loading"
                     @click="closeCheckout"
                   ></button>
@@ -957,7 +946,7 @@ const browsingDestination = computed(() => {
                 <form @submit.prevent="buy">
                   <div class="mb-3">
                     <label class="form-label" for="customer-phone"
-                      >Namba ya kulipia</label
+                      > {{ t("Namba ya kulipia") }} </label
                     ><input
                       id="customer-phone"
                       ref="phoneInput"
@@ -971,14 +960,12 @@ const browsingDestination = computed(() => {
                       placeholder="255 7XX XXX XXX"
                       aria-describedby="phone-help"
                       :disabled="loading || checkoutSubmitted"
-                    /><small id="phone-help" class="text-secondary">{{
-                      phone.length && !phoneValid
+                    /><small id="phone-help" class="text-secondary">{{ t(phone.length && !phoneValid
                         ? "Hakiki namba ya simu."
-                        : "Ombi hutumwa namba ikikamilika."
-                    }}</small>
+                        : "Ombi hutumwa namba ikikamilika.") }}</small>
                   </div>
                   <div v-if="error" class="alert alert-danger" role="alert">
-                    {{ error }}
+                    {{ t(error) }}
                   </div>
                   <p
                     v-if="(loading || checkoutSubmitted) && !error"
@@ -989,16 +976,14 @@ const browsingDestination = computed(() => {
                     <span v-if="loading" class="inline-eye"
                       ><SignalEye status="loading"
                     /></span>
-                    {{ checkoutStep }}
+                    {{ t(checkoutStep) }}
                   </p>
                   <button
                     v-if="error"
                     type="button"
                     class="btn btn-outline-primary mt-2"
                     @click="order ? continuePayment() : buy()"
-                  >
-                    Jaribu tena
-                  </button>
+                  > {{ t("Jaribu tena") }} </button>
                 </form>
               </div>
             </dialog>
@@ -1024,18 +1009,18 @@ const browsingDestination = computed(() => {
             <div class="status-eye">
               <SignalEye :status="portalEyeStatus" />
             </div>
-            <h1>{{ paymentTitle }}</h1>
+            <h1>{{ t(paymentTitle) }}</h1>
             <p
               v-if="paymentMessage"
               class="payment-message"
               :role="error ? 'alert' : undefined"
             >
-              {{ paymentMessage }}
+              {{ t(paymentMessage) }}
             </p>
             <div
               v-if="paymentAwaitingPin"
               class="payment-countdown"
-              aria-label="Muda uliobaki"
+              :aria-label="t('Muda uliobaki')"
             >
               {{ pushCountdown }}
             </div>
@@ -1048,13 +1033,11 @@ const browsingDestination = computed(() => {
               <span v-if="loading" class="inline-eye"
                 ><SignalEye status="loading"
               /></span>
-              {{
-                loading
+              {{ t(loading
                   ? "Subiri…"
                   : error || paymentFailed
                     ? "Jaribu tena"
-                    : "Tuma ombi"
-              }}
+                    : "Tuma ombi") }}
               <i
                 v-if="!loading"
                 class="bi bi-arrow-right"
@@ -1070,7 +1053,7 @@ const browsingDestination = computed(() => {
               <span v-if="resendBusy" class="inline-eye"
                 ><SignalEye status="loading"
               /></span>
-              {{ resendBusy ? "Subiri…" : "Tuma tena" }}
+              {{ t(resendBusy ? "Subiri…" : "Tuma tena") }}
             </button>
           </section>
 
@@ -1080,9 +1063,9 @@ const browsingDestination = computed(() => {
             aria-live="polite"
           >
             <div class="status-eye"><SignalEye status="loading" /></div>
-            <div class="state-eyebrow">Malipo yamepokelewa</div>
-            <h1>Tunaandaa intaneti yako</h1>
-            <p>Tafadhali subiri, inaweza kuchukua hadi dakika 6.</p>
+            <div class="state-eyebrow"> {{ t("Malipo yamepokelewa") }} </div>
+            <h1> {{ t("Tunaandaa intaneti yako") }} </h1>
+            <p> {{ t("Tafadhali subiri, inaweza kuchukua hadi dakika 6.") }} </p>
             <div class="connection-progress"><span></span></div>
           </section>
 
@@ -1092,20 +1075,16 @@ const browsingDestination = computed(() => {
             aria-live="polite"
           >
             <div class="status-eye"><SignalEye status="error" /></div>
-            <div class="state-eyebrow">Malipo yamepokelewa</div>
+            <div class="state-eyebrow"> {{ t("Malipo yamepokelewa") }} </div>
             <h1>
-              {{
-                voucherUnavailable
+              {{ t(voucherUnavailable
                   ? "Huduma ya Wi-Fi haipatikani sasa"
-                  : "Maandalizi yanachukua muda"
-              }}
+                  : "Maandalizi yanachukua muda") }}
             </h1>
             <p>
-              {{
-                voucherUnavailable
+              {{ t(voucherUnavailable
                   ? "Voucher hii haipatikani tena. Tafadhali wasiliana na msimamizi."
-                  : "Malipo yamethibitishwa. Intaneti haijawa tayari; usilipe tena."
-              }}
+                  : "Malipo yamethibitishwa. Intaneti haijawa tayari; usilipe tena.") }}
             </p>
             <button
               class="primary-action mt-4"
@@ -1115,10 +1094,10 @@ const browsingDestination = computed(() => {
               <span v-if="refreshBusy" class="inline-eye"
                 ><SignalEye status="loading"
               /></span>
-              {{ refreshBusy ? "Tunakagua…" : "Kagua tena" }}
+              {{ t(refreshBusy ? "Tunakagua…" : "Kagua tena") }}
             </button>
             <p v-if="error" class="portal-alert danger" role="alert">
-              {{ error }}
+              {{ t(error) }}
             </p>
           </section>
 
@@ -1131,8 +1110,8 @@ const browsingDestination = computed(() => {
               <SignalEye :status="portalEyeStatus" />
             </div>
             <div class="state-eyebrow">{{ order?.plan?.name }}</div>
-            <h1>{{ connectionTitle }}</h1>
-            <p>{{ connectionMessage }}</p>
+            <h1>{{ t(connectionTitle) }}</h1>
+            <p>{{ t(connectionMessage) }}</p>
 
             <div v-if="connectionWaiting" class="connection-progress">
               <span></span>
@@ -1150,11 +1129,9 @@ const browsingDestination = computed(() => {
               <span v-else class="inline-eye"
                 ><SignalEye :status="portalEyeStatus"
               /></span>
-              {{
-                connectionState === "manual"
+              {{ t(connectionState === "manual"
                   ? "Connect now"
-                  : "Try connection again"
-              }}
+                  : "Try connection again") }}
             </button>
 
             <button
@@ -1164,13 +1141,10 @@ const browsingDestination = computed(() => {
               "
               class="primary-action"
               @click="startNewPurchase"
-            >
-              Buy another package
-            </button>
+            > {{ t("Buy another package") }} </button>
 
             <div v-if="order?.voucher" class="voucher-secondary">
-              <p v-if="order.masked_phone">
-                Linked phone: {{ order.masked_phone }}
+              <p v-if="order.masked_phone"> {{ t("Linked phone:") }} {{ order.masked_phone }}
               </p>
               <VoucherCard
                 :voucher="{
@@ -1192,37 +1166,34 @@ const browsingDestination = computed(() => {
           >
             <div class="online-hero">
               <div class="status-eye"><SignalEye status="success" /></div>
-              <div class="state-eyebrow">Connected successfully</div>
-              <h1>You’re online</h1>
-              <p>Internet access is active on this device.</p>
+              <div class="state-eyebrow"> {{ t("Connected successfully") }} </div>
+              <h1> {{ t("You’re online") }} </h1>
+              <p> {{ t("Internet access is active on this device.") }} </p>
             </div>
 
             <div class="online-summary">
               <div>
-                <span>Plan</span>
+                <span> {{ t("Plan") }} </span>
                 <strong>{{ order?.plan?.name }}</strong>
               </div>
               <div>
-                <span>Package time left</span>
-                <strong>{{ remainingLabel }}</strong>
+                <span> {{ t("Package time left") }} </span>
+                <strong>{{ t(remainingLabel) }}</strong>
               </div>
               <div>
-                <span>Speed</span>
-                <strong>{{ speedLabel(order?.plan?.rate_limit) }}</strong>
+                <span> {{ t("Speed") }} </span>
+                <strong>{{ t(speedLabel(order?.plan?.rate_limit)) }}</strong>
               </div>
             </div>
 
             <a
               class="primary-action primary-action--link"
               :href="browsingDestination"
-            >
-              Continue browsing
-              <i class="bi bi-arrow-right" aria-hidden="true"></i>
+            > {{ t("Continue browsing") }} <i class="bi bi-arrow-right" aria-hidden="true"></i>
             </a>
 
             <div class="voucher-secondary">
-              <p v-if="order?.masked_phone">
-                Linked phone: {{ order.masked_phone }}
+              <p v-if="order?.masked_phone"> {{ t("Linked phone:") }} {{ order.masked_phone }}
               </p>
               <VoucherCard
                 :voucher="{
@@ -1240,9 +1211,7 @@ const browsingDestination = computed(() => {
       </main>
 
       <footer class="portal-footer">
-        <i class="bi bi-shield-check" aria-hidden="true"></i>Malipo salama ·
-        Voucher moja kwa kifaa kimoja
-      </footer>
+        <i class="bi bi-shield-check" aria-hidden="true"></i> {{ t("Malipo salama · Voucher moja kwa kifaa kimoja") }} </footer>
     </div>
   </div>
 </template>
@@ -2565,4 +2534,8 @@ v .plan-option:not(:active):not(:focus-visible) .plan-option__price i {
   flex-shrink: 0;
   vertical-align: middle;
 }
+ .plan-option__price { flex-wrap: wrap; }
+.plan-option__price .plan-original-price { flex-basis: 100%; color: #64748b; font-size: 12px; line-height: 1.2; font-weight: 400; }
+.portal-language { min-width:44px; min-height:44px; padding:0 9px; flex-shrink:0; border:1px solid #fff; border-radius:12px; background:#edf3f8; color:#185e87; font-size:13px; font-weight:750; box-shadow:3px 3px 7px #cbd5df,-3px -3px 7px #fff; }
+.portal-language:focus-visible { outline:3px solid #16879e; outline-offset:2px; }
 </style>

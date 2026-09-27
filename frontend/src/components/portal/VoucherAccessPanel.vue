@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { usePortalLanguage } from '../../i18n/portalLanguage'
+const { t, formatDate } = usePortalLanguage()
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../../api'
 import { formatPhoneInput } from '../../utils/formatPhoneInput'
 import VoucherCard from '../vouchers/VoucherCard.vue'
 import SignalEye from './SignalEye.vue'
 import { submitHotspotLogin } from '../../utils/hotspotLogin'
-import { formatDate } from '../../utils/formatDate'
 const props = defineProps<{ mode: 'redeem' | 'recovery'; compact?: boolean }>()
 const emit = defineEmits<{ buy: [] }>()
 const code = ref(''), pin = ref(''), phone = ref(''), recoveryPin = ref('')
@@ -160,63 +161,82 @@ onUnmounted(() => { if (poll) clearInterval(poll) })
 </script>
 <template>
   <section class="portal-state-card voucher-access text-start" :class="{compact}">
-    <h1 v-if="!compact" class="h3">{{ mode === 'redeem' ? 'Use a Voucher' : 'My Vouchers' }}</h1>
-    <p v-if="message" role="status" class="alert alert-info mt-3">{{ message }}</p>
+    <h1 v-if="!compact" class="h3">{{ t(mode === 'redeem' ? 'Use a Voucher' : 'My Vouchers') }}</h1>
+    <p v-if="message" role="status" class="alert alert-info mt-3">{{ t(message) }}</p>
     <div v-if="issuedPin" class="alert alert-warning">
-      <strong>Recovery PIN: {{ issuedPin }}</strong><p>Keep this recovery PIN. You can use it to recover this voucher later.</p>
-      <button class="btn btn-outline-dark" @click="issuedPin=''">I have saved it</button>
+      <strong> {{ t("Recovery PIN:") }} {{ issuedPin }}</strong><p> {{ t("Keep this recovery PIN. You can use it to recover this voucher later.") }} </p>
+      <button class="btn btn-outline-dark" @click="issuedPin=''"> {{ t("I have saved it") }} </button>
     </div>
     <template v-if="voucher">
       <VoucherCard :voucher="voucher" :plan="voucher.plan" :now-ms="nowTick" :show-connect="canConnect && !issuedPin" :connect-label="voucher.status === 'active' ? 'Reconnect' : 'Connect'" :connecting="busy" @connect="connect" />
-      <p class="mt-3 mb-1">Linked phone: {{ voucher.customer_phone || 'Not registered' }}</p>
-      <p>Purchased: {{ formatDate(voucher.created_at) }}</p>
-      <p v-if="voucher.session">Last activity: {{ formatDate(voucher.session.last_seen_at) }}</p>
+      <p class="mt-3 mb-1"> {{ t("Linked phone:") }} {{ voucher.customer_phone || t('Not registered') }}</p>
+      <p> {{ t("Purchased:") }} {{ formatDate(voucher.created_at) }}</p>
+      <p v-if="voucher.session"> {{ t("Last activity:") }} {{ formatDate(voucher.session.last_seen_at) }}</p>
       <div v-if="verified" class="d-grid gap-2 mt-3">
-        <button v-if="voucher.device_mac && ['ready','active'].includes(voucher.status)" class="btn btn-outline-primary" :disabled="busy || voucher.transfer_pending" @click="support('device-transfer-request')">{{ voucher.transfer_pending ? 'Device request awaiting review' : 'This is not my device' }}</button>
-        <button class="btn btn-outline-secondary" :disabled="busy" @click="support('report-compromised')">Report voucher compromised</button>
+        <button v-if="voucher.device_mac && ['ready','active'].includes(voucher.status)" class="btn btn-outline-primary" :disabled="busy || voucher.transfer_pending" @click="support('device-transfer-request')">{{ t(voucher.transfer_pending ? 'Device request awaiting review' : 'This is not my device') }}</button>
+        <button class="btn btn-outline-secondary" :disabled="busy" @click="support('report-compromised')"> {{ t("Report voucher compromised") }} </button>
       </div>
-      <p v-else-if="voucher.device_mac" class="mt-3">Use My Vouchers with your recovery PIN, or contact support, to request a device transfer.</p>
+      <p v-else-if="voucher.device_mac" class="mt-3"> {{ t("Use My Vouchers with your recovery PIN, or contact support, to request a device transfer.") }} </p>
       <form v-if="!voucher.registered" class="mt-3" @submit.prevent="claim">
-        <label for="claim-phone" class="form-label">Register this voucher for recovery</label>
+        <label for="claim-phone" class="form-label"> {{ t("Register this voucher for recovery") }} </label>
         <input id="claim-phone" :value="phone" @input="onPhoneInput" type="tel" inputmode="numeric" pattern="[0-9 ]*" autocomplete="tel" required class="form-control" :class="{ 'phone-invalid':phoneInvalid }" :aria-invalid="phoneInvalid" aria-describedby="claim-phone-feedback" :disabled="busy" @blur="phoneTouched=true" placeholder="255 7XX XXX XXX" />
-        <small id="claim-phone-feedback" class="phone-feedback" :class="{ 'phone-feedback--error':phoneInvalid }" aria-live="polite">{{ phoneInvalid ? 'Weka namba sahihi ya Tanzania.' : normalizedPhone ? '✓ Namba imekamilika' : '' }}</small>
-        <button class="btn btn-outline-primary mt-2" :disabled="busy || !normalizedPhone">Claim voucher</button>
+        <small id="claim-phone-feedback" class="phone-feedback" :class="{ 'phone-feedback--error':phoneInvalid }" aria-live="polite">{{ t(phoneInvalid ? 'Weka namba sahihi ya Tanzania.' : normalizedPhone ? '✓ Namba imekamilika' : '') }}</small>
+        <button class="btn btn-outline-primary mt-2" :disabled="busy || !normalizedPhone"> {{ t("Claim voucher") }} </button>
       </form>
-      <button v-if="voucher.status === 'expired' || state === 'expired'" class="btn btn-primary mt-3" @click="emit('buy')">Buy new package</button>
-      <p v-if="['disabled','revoked'].includes(voucher.status)">Contact the Wi-Fi operator for support.</p>
-      <button class="btn btn-link mt-3" @click="forget(); selected=null; message=''">Use another voucher</button>
+      <button v-if="voucher.status === 'expired' || state === 'expired'" class="btn btn-primary mt-3" @click="emit('buy')"> {{ t("Buy new package") }} </button>
+      <p v-if="['disabled','revoked'].includes(voucher.status)"> {{ t("Contact the Wi-Fi operator for support.") }} </p>
+      <button class="btn btn-link mt-3" @click="forget(); selected=null; message=''"> {{ t("Use another voucher") }} </button>
     </template>
     <form v-else-if="mode === 'redeem'" @submit.prevent="redeem">
-      <label for="redeem-code" class="visually-hidden">Voucher code</label>
-      <div class="credential-field"><i class="bi bi-ticket-perforated" aria-hidden="true"></i><input id="redeem-code" v-model="code" class="form-control" placeholder="Voucher code" autocomplete="off" autocapitalize="characters" required maxlength="80" @input="code=code.toUpperCase()" @blur="code=code.trim()" /></div>
-      <label for="redeem-pin" class="visually-hidden">Voucher PIN</label>
+      <label for="redeem-code" class="visually-hidden"> {{ t("Voucher code") }} </label>
+      <div class="credential-field"><i class="bi bi-ticket-perforated" aria-hidden="true"></i><input id="redeem-code" v-model="code" class="form-control" :placeholder="t('Voucher code')" autocomplete="off" autocapitalize="characters" required maxlength="80" @input="code=code.toUpperCase()" @blur="code=code.trim()" /></div>
+      <label for="redeem-pin" class="visually-hidden"> {{ t("Voucher PIN") }} </label>
       <div class="credential-field"><i class="bi bi-lock" aria-hidden="true"></i><input id="redeem-pin" v-model="pin" class="form-control" placeholder="PIN" type="password" inputmode="numeric" autocomplete="off" required maxlength="80" /></div>
-      <button class="btn btn-primary w-100 access-connect" :disabled="busy"><span>{{ busy ? 'Connecting…' : 'Connect' }}</span><span class="button-eye"><SignalEye :status="eyeStatus" /></span></button>
+      <button class="btn btn-primary w-100 access-connect" :disabled="busy"><span>{{ t(busy ? 'Connecting…' : 'Connect') }}</span><span class="button-eye"><SignalEye :status="eyeStatus" /></span></button>
     </form>
     <template v-else>
       <form @submit.prevent="lookup()">
-        <label for="recovery-phone" class="form-label">Phone number</label>
+        <label for="recovery-phone" class="form-label"> {{ t("Phone number") }} </label>
         <input id="recovery-phone" :value="phone" @input="onPhoneInput" class="form-control" :class="{ 'phone-invalid':phoneInvalid }" type="tel" inputmode="numeric" pattern="[0-9 ]*" autocomplete="tel" required :aria-invalid="phoneInvalid" aria-describedby="recovery-phone-feedback" :disabled="busy" @blur="phoneTouched=true" placeholder="255 7XX XXX XXX" />
-        <small id="recovery-phone-feedback" class="phone-feedback" :class="{ 'phone-feedback--error':phoneInvalid }" aria-live="polite">{{ phoneInvalid ? 'Weka namba sahihi ya Tanzania.' : normalizedPhone ? '✓ Namba imekamilika' : '' }}</small>
-        <button class="btn btn-primary w-100 access-connect" :disabled="busy || !normalizedPhone"><span>{{ busy ? 'Searching…' : 'Find vouchers' }}</span><span class="button-eye"><SignalEye :status="eyeStatus" /></span></button>
+        <small id="recovery-phone-feedback" class="phone-feedback" :class="{ 'phone-feedback--error':phoneInvalid }" aria-live="polite">{{ t(phoneInvalid ? 'Weka namba sahihi ya Tanzania.' : normalizedPhone ? '✓ Namba imekamilika' : '') }}</small>
+        <button class="btn btn-primary w-100 access-connect" :disabled="busy || !normalizedPhone"><span>{{ t(busy ? 'Searching…' : 'Find vouchers') }}</span><span class="button-eye"><SignalEye :status="eyeStatus" /></span></button>
       </form>
       <form v-if="selected" class="mt-4" @submit.prevent="verify">
         <h2 class="h5">{{ selected.plan.name }} · {{ selected.code }}</h2>
-        <label for="recovery-pin" class="form-label">This voucher’s recovery PIN</label>
+        <label for="recovery-pin" class="form-label"> {{ t("This voucher’s recovery PIN") }} </label>
         <input id="recovery-pin" v-model="recoveryPin" class="form-control mb-3" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" required />
-        <button class="btn btn-primary" :disabled="busy || !normalizedPhone">Verify</button>
-        <p class="small mt-2">Lost your recovery PIN? Contact the Wi-Fi operator.</p>
+        <button class="btn btn-primary" :disabled="busy || !normalizedPhone"> {{ t("Verify") }} </button>
+        <p class="small mt-2"> {{ t("Lost your recovery PIN? Contact the Wi-Fi operator.") }} </p>
       </form>
-      <div v-else-if="searched" class="mt-4">
-        <label for="voucher-filter" class="form-label">Show</label>
-        <select id="voucher-filter" v-model="filter" class="form-select mb-3"><option value="all">All</option><option value="active">Active</option><option value="unused">Unused</option><option value="expired">Expired</option></select>
-        <p v-if="!visible.length">No matching vouchers on this page. Check the number or contact support.</p>
-        <article v-for="item in visible" :key="item.uuid" class="card p-3 mb-2">
-          <h2 class="h5">{{ item.plan.name }}</h2><p>{{ labels[item.status] || 'Unavailable' }} · {{ item.code }}</p>
-          <small>Purchased {{ formatDate(item.created_at) }}</small><small v-if="item.device_mac">Device {{ item.device_mac }}</small>
-          <button class="btn btn-outline-primary mt-2" @click="selected=item; recoveryPin=''">Recover this voucher</button>
-        </article>
-        <div v-if="lastPage>1" class="d-flex gap-2"><button class="btn btn-outline-secondary" :disabled="busy || page===1" @click="lookup(page-1)">Previous</button><span>{{ page }} / {{ lastPage }}</span><button class="btn btn-outline-secondary" :disabled="busy || page===lastPage" @click="lookup(page+1)">Next</button></div>
+      <div v-else-if="searched" class="recovery-results" :aria-busy="busy">
+        <div class="recovery-results__toolbar">
+          <h2> {{ t("Vouchers") }} </h2>
+          <label for="voucher-filter" class="visually-hidden"> {{ t("Filter vouchers on this page") }} </label>
+          <select id="voucher-filter" v-model="filter" class="form-select"><option value="all"> {{ t("All") }} </option><option value="active"> {{ t("Active") }} </option><option value="unused"> {{ t("Unused") }} </option><option value="expired"> {{ t("Expired") }} </option></select>
+        </div>
+        <p v-if="!visible.length" class="recovery-empty" role="status"> {{ t("No vouchers match on this page.") }} </p>
+        <div class="recovery-list">
+          <article v-for="item in visible" :key="item.uuid" class="recovery-ticket">
+            <header class="recovery-ticket__header">
+              <h3>{{ item.plan.name }}</h3>
+              <span class="recovery-ticket__status" :class="`recovery-ticket__status--${item.status}`">{{ t(labels[item.status] || 'Unavailable') }}</span>
+            </header>
+            <div class="recovery-ticket__code"><i class="bi bi-ticket-perforated" aria-hidden="true"></i><span>{{ item.code }}</span></div>
+            <div class="recovery-ticket__footer">
+              <time :datetime="item.created_at" :aria-label="t('Purchased')">{{ formatDate(item.created_at) }}</time>
+              <button type="button" class="recovery-ticket__action" :disabled="busy" :aria-label="`${t('Recover')} ${item.plan.name}, ${item.code}`" @click="selected=item; recoveryPin=''"> {{ t("Recover") }} <i class="bi bi-arrow-right" aria-hidden="true"></i></button>
+            </div>
+            <details v-if="item.device_mac" class="recovery-ticket__details">
+              <summary> {{ t("Device") }} </summary>
+              <span>{{ item.device_mac }}</span>
+            </details>
+          </article>
+        </div>
+        <nav v-if="lastPage>1" class="recovery-pagination" :aria-label="t('Voucher pages')">
+          <button class="btn btn-outline-secondary" :disabled="busy || page===1" @click="lookup(page-1)"> {{ t("Previous") }} </button>
+          <span>{{ page }} / {{ lastPage }}</span>
+          <button class="btn btn-outline-secondary" :disabled="busy || page===lastPage" @click="lookup(page+1)"> {{ t("Next") }} </button>
+        </nav>
       </div>
     </template>
   </section>
@@ -245,4 +265,35 @@ button:focus-visible { outline:3px solid #16879e; outline-offset:3px; }
 .phone-feedback--error { color:#a33e3e; }
 .compact .form-control.phone-invalid { border-color:#bd6262; }
 .access-connect:disabled { opacity:.55; box-shadow:none; cursor:not-allowed; }
+
+.recovery-results { margin-top: 22px; min-width: 0; }
+.recovery-results__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.recovery-results__toolbar h2 { margin: 0; font-size: 15px; font-weight: 750; color: #233746; }
+.recovery-results__toolbar .form-select { width: 128px; min-width: 0; font-size: 16px; }
+.recovery-list { display: grid; gap: 12px; }
+.recovery-ticket { min-width: 0; padding: 13px; border: 1px solid #fff; border-radius: 16px; background: #eef3f9; box-shadow: 3px 3px 8px #cbd5df, -3px -3px 8px #fff; }
+.recovery-ticket__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.recovery-ticket__header h3 { min-width: 0; margin: 0; font-size: 15px; line-height: 1.4; font-weight: 750; color: #233746; overflow-wrap: anywhere; }
+.recovery-ticket__status { flex-shrink: 0; max-width: 45%; padding: 4px 7px; border-radius: 7px; background: #e1e7ed; color: #526571; font-size: 11px; line-height: 1.4; font-weight: 650; overflow-wrap: anywhere; }
+.recovery-ticket__status--ready { background: #dfedf8; color: #185e87; }
+.recovery-ticket__status--active { background: #dcefed; color: #13696a; }
+.recovery-ticket__status--provision_pending { background: #e3eaf3; color: #485f7c; }
+.recovery-ticket__code { display: flex; align-items: center; gap: 7px; margin-top: 7px; color: #526571; font-size: 13px; overflow-wrap: anywhere; }
+.recovery-ticket__code span { min-width: 0; }
+.recovery-ticket__footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 10px; border-top: 1px solid #dce4ec; margin-top: 10px; padding-top: 6px; }
+.recovery-ticket__footer time { color: #526571; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.recovery-ticket__action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 10px; border: 1px solid #c4d9e5; border-radius: 11px; background: linear-gradient(145deg, #f6faff, #dfeaf2); color: #185e87; font-size: 12px; font-weight: 650; }
+.recovery-ticket__action:disabled { opacity: .55; }
+.recovery-ticket__details { margin-top: 4px; color: #526571; font-size: 12px; overflow-wrap: anywhere; }
+.recovery-ticket__details summary { min-height: 44px; padding: 12px 0; cursor: pointer; }
+.recovery-ticket__details summary:focus-visible { outline: 2px solid #16879e; outline-offset: 2px; }
+.recovery-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 16px; font-size: 12px; }
+.recovery-pagination .btn { padding: 8px 10px; min-width: 0; }
+.recovery-empty { padding: 16px 0; font-size: 13px; color: #526571; }
+@media (max-width: 359px) {
+  .recovery-ticket { padding: 10px; }
+  .recovery-ticket__header h3 { font-size: 14px; }
+  .recovery-ticket__footer { gap: 4px; }
+  .recovery-ticket__action { padding: 0 8px; }
+}
 </style>

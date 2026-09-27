@@ -8,6 +8,7 @@ interface Plan {
   name: string
   code: string
   price: number
+  original_price: number | null
   duration_seconds: number
   rate_limit: string
   mikrotik_profile_name: string
@@ -23,6 +24,7 @@ interface PlanForm {
   name: string
   code: string
   price: number | null
+  original_price: number | null
   duration_hours: number | null
   rate_limit: string
   active: boolean
@@ -32,7 +34,7 @@ interface PlanForm {
 }
 
 function emptyForm(): PlanForm {
-  return { name: '', code: '', price: null, duration_hours: null, rate_limit: '', active: true, recommended: false, kind: 'time', data_limit_mb: null }
+  return { name: '', code: '', price: null, original_price: null, duration_hours: null, rate_limit: '', active: true, recommended: false, kind: 'time', data_limit_mb: null }
 }
 
 const plans = ref<Plan[]>([])
@@ -49,7 +51,7 @@ const hasHistory = computed(() => Boolean(editingPlan.value?.vouchers_exists || 
 
 function startEdit(plan: Plan) {
   editingId.value = plan.id
-  form.value = { name: plan.name, code: plan.code, price: plan.price, duration_hours: plan.duration_seconds / 3600, rate_limit: plan.rate_limit, active: plan.active, recommended: plan.recommended, kind: plan.data_limit_bytes ? 'data' : 'time', data_limit_mb: plan.data_limit_bytes ? plan.data_limit_bytes / 1048576 : null }
+  form.value = { name: plan.name, code: plan.code, price: plan.price, original_price: plan.original_price ?? null, duration_hours: plan.duration_seconds / 3600, rate_limit: plan.rate_limit, active: plan.active, recommended: plan.recommended, kind: plan.data_limit_bytes ? 'data' : 'time', data_limit_mb: plan.data_limit_bytes ? plan.data_limit_bytes / 1048576 : null }
   error.value = ''
   notice.value = ''
   fieldErrors.value = {}
@@ -62,7 +64,7 @@ function cancelEdit() {
 }
 
 function planPayload(plan: Plan, active: boolean) {
-  return { name: plan.name, code: plan.code, description: plan.description, price: plan.price, currency: 'TZS', duration_seconds: plan.duration_seconds, rate_limit: plan.rate_limit, data_limit_bytes: plan.data_limit_bytes, active, recommended: plan.recommended }
+  return { name: plan.name, code: plan.code, description: plan.description, price: plan.price, original_price: plan.original_price ?? null, currency: 'TZS', duration_seconds: plan.duration_seconds, rate_limit: plan.rate_limit, data_limit_bytes: plan.data_limit_bytes, active, recommended: plan.recommended }
 }
 
 async function toggleActive(plan: Plan) {
@@ -110,6 +112,7 @@ async function save() {
       name: form.value.name.trim(),
       code: hasHistory.value && editingPlan.value ? editingPlan.value.code : form.value.code.trim().toUpperCase(),
       price: form.value.price,
+      original_price: form.value.original_price === null || String(form.value.original_price) === "" ? null : Number(form.value.original_price),
       duration_seconds: hasHistory.value && editingPlan.value ? editingPlan.value.duration_seconds : form.value.duration_hours === null ? null : Math.round(form.value.duration_hours * 3600),
       rate_limit: hasHistory.value && editingPlan.value ? editingPlan.value.rate_limit : form.value.rate_limit.trim(),
       active: form.value.active,
@@ -183,6 +186,12 @@ onMounted(load)
             <div class="row g-3 mb-3">
               <div class="col-sm-6"><label class="form-label" for="plan-code">Package code</label><input id="plan-code" v-model="form.code" class="form-control" maxlength="30" pattern="[A-Za-z0-9_-]+" :readonly="hasHistory" required placeholder="e.g. DAY" /><small v-if="fieldErrors.code" class="text-danger">{{ fieldErrors.code[0] }}</small></div>
               <div class="col-sm-6"><label class="form-label" for="plan-price">Price (TZS)</label><input id="plan-price" v-model.number="form.price" type="number" min="500" step="1" class="form-control" required placeholder="e.g. 2000" /><small v-if="fieldErrors.price" class="text-danger">{{ fieldErrors.price[0] }}</small></div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="plan-original-price">Bei ya awali (TZS) · hiari</label>
+              <input id="plan-original-price" v-model.number="form.original_price" type="number" :min="Number(form.price || 0) + 1" step="1" class="form-control" aria-describedby="original-price-help" />
+              <small id="original-price-help" class="text-secondary">Iwe juu ya bei ya sasa. Acha wazi kuondoa punguzo.</small>
+              <small v-if="fieldErrors.original_price" class="text-danger d-block">{{ fieldErrors.original_price[0] }}</small>
             </div>
             <div class="row g-3 mb-3">
               <div class="col-sm-6"><label class="form-label" for="plan-hours">{{ form.kind === 'data' ? 'Validity (hours)' : 'Duration (hours)' }}</label><input id="plan-hours" v-model.number="form.duration_hours" type="number" min="0.0167" step="any" class="form-control" :readonly="hasHistory" required placeholder="e.g. 24" /><small v-if="fieldErrors.duration_seconds" class="text-danger">{{ fieldErrors.duration_seconds[0] }}</small></div>
