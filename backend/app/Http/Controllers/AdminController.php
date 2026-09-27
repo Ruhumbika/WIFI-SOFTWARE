@@ -375,11 +375,15 @@ class AdminController extends Controller
 
     private function planData(Request $request, ?int $ignoreId = null): array
     {
+        if ($ignoreId && !$request->exists('original_price')) {
+            $request->merge(['original_price' => Plan::findOrFail($ignoreId)->original_price]);
+        }
         return $request->validate([
             'name' => ['required', 'string', 'max:100'],
             'code' => ['required', 'alpha_dash', 'max:30', 'unique:plans,code' . ($ignoreId ? ',' . $ignoreId : '')],
             'description' => ['nullable', 'string', 'max:500'],
             'price' => ['required', 'integer', 'min:500'],
+            'original_price' => ['nullable', 'integer', 'gt:price'],
             'currency' => ['sometimes', 'in:TZS'],
             'duration_seconds' => ['required', 'integer', 'min:60'],
             'rate_limit' => ['required', 'string', 'max:30'],
