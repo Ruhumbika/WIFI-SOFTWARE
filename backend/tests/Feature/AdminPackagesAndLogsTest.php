@@ -22,6 +22,26 @@ class AdminPackagesAndLogsTest extends TestCase
         return ['Authorization' => 'Bearer '.$token];
     }
 
+    public function test_original_price_is_optional_validated_and_does_not_change_checkout_amount(): void
+    {
+        $headers = $this->adminHeaders();
+        $payload = ['name' => 'Day', 'code' => 'DAY', 'price' => 2000, 'original_price' => 3000, 'duration_seconds' => 86400, 'rate_limit' => '4M/4M', 'active' => true];
+        $response = $this->postJson('/api/admin/plans', $payload, $headers)->assertCreated()->assertJsonPath('original_price', 3000);
+        $id = $response->json('id');
+        $this->getJson('/api/public/plans')->assertOk()->assertJsonPath('0.original_price', 3000);
+        $this->postJson('/api/public/orders', ['plan_id' => $id, 'phone' => '0712345678'])->assertCreated()->assertJsonPath('amount', 2000);
+        foreach ([2000, 1000, -1, 2500.5] as $invalid) {
+            $this->putJson('/api/admin/plans/'.$id, array_merge($payload, ['original_price' => $invalid]), $headers)->assertUnprocessable()->assertJsonValidationErrors('original_price');
+        }
+        $withoutOriginal = $payload;
+        unset($withoutOriginal['original_price']);
+        $this->putJson('/api/admin/plans/'.$id, $withoutOriginal, $headers)->assertOk()->assertJsonPath('original_price', 3000);
+        $this->putJson('/api/admin/plans/'.$id, array_merge($withoutOriginal, ['price' => 3500]), $headers)->assertUnprocessable()->assertJsonValidationErrors('original_price');
+        $this->putJson('/api/admin/plans/'.$id, array_merge($payload, ['original_price' => null]), $headers)->assertOk()->assertJsonPath('original_price', null);
+        $this->getJson('/api/public/plans')->assertOk()->assertJsonPath('0.original_price', null);
+        $this->postJson('/api/admin/plans', array_merge($withoutOriginal, ['code' => 'WEEK']), $headers)->assertCreated();
+    }
+
     public function test_used_package_can_be_edited_and_deactivated_without_changing_voucher_terms(): void
     {
         $plan = Plan::create([
