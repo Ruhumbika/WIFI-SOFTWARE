@@ -32,7 +32,8 @@ class SnippeLivePaymentTest extends TestCase
         return ['data'=>['reference'=>$reference,'status'=>'pending','amount'=>500,'currency'=>'TZS','checkout_url'=>'https://snippe.me/checkout/test','collect_email'=>false,'allowed_methods'=>['mobile_money']]];
     }
     private function start(Order $order, string $reference='sess_test'): Payment {
-        Http::fake(['api.snippe.sh/*'=>Http::response($this->sessionResponse($reference),201)]);
+        Http::fake(['api.snippe.sh/*'=>Http::response($this->sessionResponse($reference),201),
+            'snippe.me/checkout/test/pay'=>Http::response(['data'=>['attempt_id'=>'attempt_test','status'=>'pending','payment_token'=>'private-token']])]);
         $this->postJson('/api/public/orders/'.$order->uuid.'/pay',[],$this->headers($order))->assertOk()->assertJsonPath('checkout_url','https://snippe.me/checkout/test');
         return $order->payments()->firstOrFail();
     }
@@ -90,7 +91,7 @@ class SnippeLivePaymentTest extends TestCase
     public function test_session_is_reused_and_no_direct_payment_is_initiated(): void {
         $this->gateway();$o=$this->order();$p=$this->start($o);
         $this->postJson('/api/public/orders/'.$o->uuid.'/pay',[],$this->headers($o))->assertOk();
-        Http::assertSentCount(2);Http::assertSent(fn($r)=>$r->method()==='GET'&&str_ends_with($r->url(),'/api/v1/sessions/sess_test'));$this->assertSame(1,$o->payments()->count());
+        Http::assertSentCount(3);Http::assertSent(fn($r)=>$r->method()==='GET'&&str_ends_with($r->url(),'/api/v1/sessions/sess_test'));$this->assertSame(1,$o->payments()->count());
     }
     public function test_profile_requiring_email_and_untrusted_checkout_url_are_rejected(): void {
         $this->gateway();$o=$this->order();$data=$this->sessionResponse();$data['data']['collect_email']=true;
@@ -161,6 +162,87 @@ class SnippeLivePaymentTest extends TestCase
         $p->update(['payment_gateway_account_id'=>$g->id]);
         $this->call('POST','/api/webhooks/snippe',[],[],[],$server,$body)->assertOk();
         $this->assertSame('completed',$p->fresh()->status);Bus::assertDispatchedTimes(ProvisionPaidOrder::class,1);
+    }
+
+    public function test_pay_reference_phone_only_push_and_private_response(): void {
+        $this->gateway(); $o=$this->order(); $p=$this->start($o, 'PAY17906121508875620');
+        Http::assertSent(fn($r)=>$r->url()==='https://snippe.me/checkout/test/pay'
+            && $r->data()===['payment_method'=>'mobile_money','customer_phone'=>'255712345678']
+            && !$r->hasHeader('Authorization'));
+        $this->assertSame('pending', $p->status);
+        $this->assertNull($o->fresh()->paid_at);
+        $this->getJson('/api/public/orders/'.$o->uuid,$this->headers($o))->assertOk()
+            ->assertJsonPath('checkout_state','pin_required')->assertJsonPath('payment_push_expires_at',null)
+            ->assertDontSee('private-token')->assertDontSee('attempt_test');
+        Bus::assertNotDispatched(ProvisionPaidOrder::class);
+    }
+
+    public function test_timeout_failed_and_unconfirmed_submission_fall_back_without_retry(): void {
+        $this->gateway();
+        foreach (['timeout','failed','unconfirmed'] as $mode) {
+            Http::swap(new \Illuminate\Http\Client\Factory());
+            Http::preventStrayRequests();
+            $o=$this->order(); $calls=0;
+            Http::fake(function ($r) use ($o, $mode, &$calls) {
+                if (str_ends_with($r->url(), '/pay')) {
+                    $calls++;
+                    $p=$o->payments()->firstOrFail();
+                    $this->assertSame('PAY-'.$mode,$p->session_reference);
+                    $this->assertSame('https://snippe.me/checkout/test',$p->checkout_url);
+                    $this->assertSame('submitting',$p->provider_payload['checkout_submission']['state']);
+                    if ($mode==='timeout') throw new \Illuminate\Http\Client\ConnectionException('private network detail');
+                    if ($mode==='failed') return Http::response(['message'=>'private provider error'],422);
+                    return Http::response(['data'=>['attempt_id'=>'attempt_unknown','status'=>'pending']]);
+                }
+                return Http::response($this->sessionResponse('PAY-'.$mode));
+            });
+            for ($i=0; $i<2; $i++) {
+                $this->postJson('/api/public/orders/'.$o->uuid.'/pay',[],$this->headers($o))->assertOk()
+                    ->assertJsonPath('order.checkout_state','fallback')
+                    ->assertJsonPath('checkout_url','https://snippe.me/checkout/test')->assertDontSee('private');
+            }
+            $this->assertSame(1,$calls); $this->assertSame(1,$o->payments()->count());
+            $this->assertNull($o->fresh()->paid_at);
+        }
+    }
+
+    public function test_existing_recovered_session_is_not_changed_or_submitted(): void {
+        $g=$this->gateway(); $o=$this->order();
+        $p=Payment::create(['uuid'=>(string)Str::uuid(),'order_id'=>$o->id,'business_id'=>$o->business_id,
+            'payment_gateway_account_id'=>$g->id,'provider'=>'snippe','status'=>'pending','amount'=>500,'currency'=>'TZS',
+            'idempotency_key'=>'recovered','session_reference'=>'PAY-recovered','checkout_url'=>'https://snippe.me/checkout/test',
+            'provider_payload'=>['recovered'=>true]]);
+        $before=$p->fresh()->getAttributes();
+        Http::fake(['api.snippe.sh/*'=>Http::response($this->sessionResponse('PAY-recovered'))]);
+        $this->postJson('/api/public/orders/'.$o->uuid.'/pay',[],$this->headers($o))->assertOk()->assertJsonPath('order.checkout_state','fallback');
+        $this->assertSame($before,$p->fresh()->getAttributes());
+        Http::assertSentCount(1); Http::assertNotSent(fn($r)=>$r->method()==='POST');
+    }
+
+    public function test_checkout_urls_reject_unapproved_hosts_and_paths_before_submission(): void {
+        $client=app(\App\Services\SnippeClient::class);
+        foreach (['http://snippe.me/checkout/test','https://evil.test/checkout/test','https://snippe.me/other/test',
+            'https://snippe.me/checkout/test?redirect=https://evil.test','https://snippe.me/checkout/test#x',
+            'https://user@snippe.me/checkout/test','https://snippe.me/checkout/../test'] as $url) {
+            try { $client->checkoutUrl($url); $this->fail('Unsafe URL accepted'); }
+            catch (\RuntimeException $e) { $this->assertStringContainsString('Invalid',$e->getMessage()); }
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_webhook_during_submission_is_not_overwritten_by_attempt_response(): void {
+        $g=$this->gateway(); $o=$this->order();
+        Http::fake(function ($r) use ($g, $o) {
+            if (str_ends_with($r->url(), '/pay')) {
+                $this->webhook($g,$this->event($o->payments()->firstOrFail()))->assertOk();
+                return Http::response(['data'=>['attempt_id'=>'attempt_race','status'=>'pending','payment_token'=>'private-race']]);
+            }
+            return Http::response($this->sessionResponse());
+        });
+        $this->postJson('/api/public/orders/'.$o->uuid.'/pay',[],$this->headers($o))->assertOk()
+            ->assertJsonPath('order.payment.status','completed')->assertJsonPath('order.checkout_state',null);
+        $this->assertSame('paid',$o->fresh()->status);
+        Bus::assertDispatchedTimes(ProvisionPaidOrder::class,1);
     }
 
 }

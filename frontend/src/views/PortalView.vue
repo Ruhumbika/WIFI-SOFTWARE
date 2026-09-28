@@ -217,7 +217,7 @@ async function buy() {
     sessionStorage.setItem(orderStorageKey, order.value.uuid);
     if (order.value.access_token)
       sessionStorage.setItem("rjay_order_token", order.value.access_token);
-    checkoutStep.value = "Opening secure checkout…";
+    checkoutStep.value = "Tunatuma ombi…";
     await requestPayment();
   } catch (e: any) {
     if (!order.value) checkoutSubmitted.value = false;
@@ -242,13 +242,6 @@ async function requestPayment() {
     `/public/orders/${encodeURIComponent(order.value.uuid)}/pay`,
   );
   order.value = response.data.order;
-  if (response.data.checkout_url) {
-    const checkout = new URL(response.data.checkout_url);
-    if (checkout.protocol !== 'https:' || checkout.username || checkout.password) throw new Error('Invalid checkout URL');
-    sessionStorage.setItem('rjay_hotspot_context', JSON.stringify({ mac: deviceMac, 'link-login-only': linkLogin, 'link-orig': linkOrig }));
-    window.location.assign(checkout.href);
-    return;
-  }
   startPoll();
 }
 
@@ -257,6 +250,14 @@ async function continuePayment() {
   loading.value = true;
   error.value = "";
   try {
+    if (order.value?.payment?.checkout_url) {
+      const checkout = new URL(order.value.payment.checkout_url);
+      if (checkout.protocol !== 'https:' || checkout.hostname !== 'snippe.me' || checkout.username || checkout.password
+        || checkout.port || checkout.search || checkout.hash || !/^\/checkout\/[A-Za-z0-9_-]+$/.test(checkout.pathname)) throw new Error('Invalid checkout URL');
+      sessionStorage.setItem('rjay_hotspot_context', JSON.stringify({ mac: deviceMac, 'link-login-only': linkLogin, 'link-orig': linkOrig }));
+      window.location.assign(checkout.href);
+      return;
+    }
     await requestPayment();
   } catch (e: any) {
     if (e.response?.status === 409) await refresh();
@@ -637,8 +638,9 @@ const paymentServiceUnavailable = computed(() =>
   error.value.includes("Huduma ya malipo haipatikani"),
 );
 const hostedCheckout = computed(() => !order.value?.payment || order.value.payment.provider === 'snippe' && !!order.value.payment.session_reference);
+const hostedPushConfirmed = computed(() => order.value?.checkout_state === 'pin_required');
 const paymentTitle = computed(() => {
-  if (hostedCheckout.value) return loading.value ? 'Opening secure checkout…' : 'Waiting for payment confirmation';
+  if (hostedCheckout.value) return loading.value ? 'Tunatuma ombi…' : hostedPushConfirmed.value ? 'Weka PIN kwenye simu' : 'Continue to payment';
   if (loading.value || resendBusy.value) return "Tunatuma ombi…";
   if (paymentServiceUnavailable.value) return "Malipo hayapatikani";
   if (paymentFailed.value) return "Malipo hayajakamilika";
@@ -649,7 +651,7 @@ const paymentTitle = computed(() => {
 });
 
 const paymentMessage = computed(() => {
-  if (hostedCheckout.value) return error.value || 'Complete payment on Snippe. This page updates after confirmation.';
+  if (hostedCheckout.value) return error.value || '';
   if (paymentServiceUnavailable.value) return "Jaribu tena baadaye.";
   if (error.value) return error.value;
   if (paymentAwaitingPin.value) return "";
@@ -1016,7 +1018,7 @@ const browsingDestination = computed(() => {
                       t(
                         phone.length && !phoneValid
                           ? "Hakiki namba ya simu."
-                          : "Continue to secure checkout.",
+                          : "",
                       )
                     }}</small>
                   </div>
@@ -1084,7 +1086,7 @@ const browsingDestination = computed(() => {
               {{ pushCountdown }}
             </div>
             <button
-              v-if="paymentRequestMissing || hostedCheckout"
+              v-if="hostedCheckout ? !hostedPushConfirmed : paymentRequestMissing"
               class="primary-action"
               :disabled="loading"
               @click="continuePayment"

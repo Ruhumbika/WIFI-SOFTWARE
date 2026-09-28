@@ -82,6 +82,7 @@ class PublicPortalController extends Controller
         if (!$payment || $payment->status !== 'pending' || (!$payment->reference && !$payment->session_reference)) {
             return response()->json(['message' => 'There is no pending payment to resend.'], 409);
         }
+        if ($payment->session_reference) return $this->pay($uuid, $snippe, app(\App\Services\SnippeSessionService::class));
         $key = 'payment-push-at:'.$payment->id;
         $lastPush = (int) Cache::get($key, $payment->updated_at?->timestamp ?? $payment->created_at->timestamp);
         if (now()->timestamp - $lastPush < 300) {
@@ -96,7 +97,6 @@ class PublicPortalController extends Controller
                 $reconciler->reconcile($payment, $clickpesa);
                 return response()->json(['message'=>'This existing payment must be resolved before another request.'],409);
             }
-            if ($payment->session_reference) return $this->pay($uuid, $snippe, app(\App\Services\SnippeSessionService::class));
             $gateway = $payment->gatewayAccount;
             abort_unless($gateway && $gateway->business_id === $order->business_id && $payment->business_id === $order->business_id, 409, 'Merchant mapping is required.');
             $status = data_get($snippe->getPayment($gateway, $payment->reference), 'data.status');
@@ -209,7 +209,8 @@ class PublicPortalController extends Controller
             'device_mac' => $order->device_mac,
             'plan' => $order->plan,
             'payment' => $payment,
-            'payment_push_expires_at' => $payment && $payment->status === 'pending' ? now()->setTimestamp($lastPush + 300)->toIso8601String() : null,
+            'checkout_state' => \App\Services\SnippeSessionService::checkoutState($payment),
+            'payment_push_expires_at' => $payment && !$payment->session_reference && $payment->status === 'pending' ? now()->setTimestamp($lastPush + 300)->toIso8601String() : null,
             'voucher' => $order->voucher ? [
                 'uuid' => $order->voucher->uuid,
                 'recovery_issued' => (bool) $order->voucher->recovery_pin_issued_at,

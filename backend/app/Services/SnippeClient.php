@@ -31,7 +31,30 @@ class SnippeClient
     public function checkoutUrl(string $url): string
     {
         $this->assertUrl($url, config('snippe.allowed_checkout_hosts'));
+        if (!preg_match('~^/checkout/[A-Za-z0-9_-]+$~D', parse_url($url, PHP_URL_PATH) ?? '')
+            || parse_url($url, PHP_URL_QUERY) !== null || parse_url($url, PHP_URL_FRAGMENT) !== null) {
+            throw new RuntimeException('Invalid checkout URL.');
+        }
         return $url;
+    }
+    public function submitCheckout(string $url, string $phone): array
+    {
+        $url = $this->checkoutUrl($url);
+        // Public checkout must never receive merchant credentials or follow redirects.
+        try {
+            $response = Http::acceptJson()->asJson()->withoutRedirecting()->timeout(config('snippe.timeout'))
+                ->post($url.'/pay', ['payment_method'=>'mobile_money', 'customer_phone'=>$phone]);
+            if (!$response->successful()) return ['state'=>'failed'];
+            $data = $response->json('data');
+            if (!is_array($data) || !is_string($data['attempt_id'] ?? null) || trim($data['attempt_id']) === ''
+                || !is_string($data['status'] ?? null)) return ['state'=>'unknown'];
+            $attempt = array_intersect_key($data, array_flip(['attempt_id','status','payment_token','expires_at']));
+            $attempt['state'] = $data['status'] === 'pending' && is_string($data['payment_token'] ?? null)
+                && trim($data['payment_token']) !== '' ? 'initiated' : 'unknown';
+            return $attempt;
+        } catch (\Throwable $e) {
+            return ['state'=>'unknown'];
+        }
     }
     public function createSession(Order $order, Payment $payment, PaymentGatewayAccount $gateway): array
     {

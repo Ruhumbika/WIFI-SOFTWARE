@@ -8,6 +8,19 @@ use Illuminate\Support\Str;
 
 class SnippeSessionService
 {
+    public static function checkoutState(?Payment $payment): ?string
+    {
+        if (!$payment?->session_reference || $payment->status !== 'pending') return null;
+        $attempt = $payment->provider_payload['checkout_submission'] ?? [];
+        if (($attempt['state'] ?? '') !== 'initiated') return 'fallback';
+        if (isset($attempt['expires_at'])) {
+            try {
+                if (!is_string($attempt['expires_at']) || \Illuminate\Support\Carbon::parse($attempt['expires_at'])->isPast()) return 'fallback';
+            } catch (\Throwable $e) { return 'fallback'; }
+        }
+        return 'pin_required';
+    }
+
     public function start(Order $order, SnippeClient $client): Payment
     {
         abort_if($order->paid_at || $order->status !== 'pending_payment', 409, 'This order is no longer awaiting payment.');
@@ -40,7 +53,7 @@ class SnippeSessionService
                 'amount'=>$order->amount, 'currency'=>$order->currency, 'idempotency_key'=>Str::random(30)]);
         });
         $data = data_get($client->createSession($order, $payment, $gateway), 'data');
-        abort_unless(is_array($data) && is_string($data['reference'] ?? null) && str_starts_with($data['reference'], 'sess_')
+        abort_unless(is_array($data) && is_string($data['reference'] ?? null) && trim($data['reference']) !== '' && strlen($data['reference']) <= 255
             && ($data['amount'] ?? null) === (int) $order->amount && ($data['currency'] ?? null) === $order->currency
             && in_array($data['status'] ?? '', ['pending','active'], true)
             && ($data['collect_email'] ?? true) === false
@@ -48,6 +61,25 @@ class SnippeSessionService
         $url = $client->checkoutUrl($data['checkout_url'] ?? '');
         $payment->forceFill(['session_reference'=>$data['reference'], 'checkout_url'=>$url,
             'provider_payload'=>['session_reference'=>$data['reference'], 'status'=>$data['status']]])->save();
-        return $payment;
+        // This durable marker prevents another request from resubmitting after a crash or timeout.
+        $submit = DB::transaction(function () use ($payment) {
+            $locked = Payment::lockForUpdate()->findOrFail($payment->id);
+            if ($locked->status !== 'pending' || isset($locked->provider_payload['checkout_submission'])) return false;
+            $locked->forceFill(['provider_payload'=>array_merge($locked->provider_payload ?? [], [
+                'checkout_submission'=>['state'=>'submitting'],
+            ])])->save();
+            return true;
+        });
+        if (!$submit) return $payment->fresh();
+        $attempt = $client->submitCheckout($url, $order->customer_phone);
+        DB::transaction(function () use ($payment, $attempt) {
+            $locked = Payment::lockForUpdate()->findOrFail($payment->id);
+            // A webhook may have completed the payment while the public checkout call was running.
+            if ($locked->status !== 'pending') return;
+            $locked->forceFill(['provider_payload'=>array_merge($locked->provider_payload ?? [], [
+                'checkout_submission'=>$attempt,
+            ])])->save();
+        });
+        return $payment->fresh();
     }
 }
