@@ -821,22 +821,15 @@ const browsingDestination = computed(() => {
               startNewPurchase();
             "
           />
-          <button
-            v-else-if="order.voucher"
-            class="btn btn-link w-100"
-            @click="portalMode = 'recovery'"
-          >
-            {{ t("My voucher") }}
-          </button>
         </section>
-        <div class="purchase-flow">
+        <div class="purchase-flow" :class="{ 'purchase-flow--voucher': order?.voucher }">
           <section
             v-if="
               recoveryDisplay ||
               recoveryError ||
               (order?.voucher && !order.voucher.recovery_issued)
             "
-            class="portal-state-card mb-3"
+            class="portal-state-card recovery-notice"
             aria-live="polite"
           >
             <template v-if="recoveryDisplay"
@@ -846,7 +839,7 @@ const browsingDestination = computed(() => {
               <p>
                 {{
                   t(
-                    "Keep this recovery PIN. You can use it to recover this voucher later.",
+                    "Save a recovery PIN to find this voucher later.",
                   )
                 }}
               </p>
@@ -1185,12 +1178,15 @@ const browsingDestination = computed(() => {
             class="portal-state-card connection-card"
             aria-live="polite"
           >
-            <div class="status-eye">
-              <SignalEye :status="portalEyeStatus" />
+            <div class="connection-heading">
+              <div class="status-eye">
+                <SignalEye :status="portalEyeStatus" />
+              </div>
+              <div>
+                <h1>{{ t(connectionTitle) }}</h1>
+                <p>{{ t(connectionMessage) }}</p>
+              </div>
             </div>
-            <div class="state-eyebrow">{{ order?.plan?.name }}</div>
-            <h1>{{ t(connectionTitle) }}</h1>
-            <p>{{ t(connectionMessage) }}</p>
 
             <div v-if="connectionWaiting" class="connection-progress">
               <span></span>
@@ -2694,5 +2690,77 @@ v .plan-option:not(:active):not(:focus-visible) .plan-option__price i {
   font-weight: 750;
   white-space: nowrap;
   pointer-events: none;
+}
+
+.purchase-flow--voucher {
+  margin-top: 12px;
+}
+.recovery-notice {
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-radius: 16px;
+  text-align: left;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+}
+.recovery-notice h2 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.recovery-notice p {
+  margin: 4px 0 10px;
+  font-size: 0.82rem;
+}
+.recovery-notice .btn {
+  min-height: 44px;
+  white-space: normal;
+}
+.connection-card {
+  padding: 16px;
+}
+.connection-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+}
+.connection-heading > div:last-child {
+  min-width: 0;
+}
+.connection-heading .status-eye {
+  flex: 0 0 42px;
+  width: 42px;
+  height: 32px;
+  margin: 0;
+}
+.connection-heading h1 {
+  margin: 0;
+  font-size: clamp(1.05rem, 4.5vw, 1.25rem);
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.connection-heading p {
+  margin-top: 4px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+.connection-card .connection-progress {
+  margin: 12px 0;
+  height: 3px;
+}
+.connection-card .primary-action {
+  margin-top: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+}
+.purchase-flow--voucher .voucher-secondary {
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.purchase-flow--voucher .voucher-secondary > p {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
 }
 </style>

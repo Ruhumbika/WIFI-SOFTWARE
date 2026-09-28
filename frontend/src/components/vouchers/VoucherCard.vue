@@ -173,7 +173,7 @@ onUnmounted(() => window.clearTimeout(copyResetTimer));
   >
     <div class="voucher-ticket__head">
       <div>
-        <div class="voucher-ticket__eyebrow">{{ t("Your voucher") }}</div>
+        <div v-if="!compact" class="voucher-ticket__eyebrow">{{ t("Your voucher") }}</div>
         <div class="voucher-ticket__package">
           {{ plan?.name || "RJAY WiFi access" }}
         </div>
@@ -583,5 +583,54 @@ onUnmounted(() => window.clearTimeout(copyResetTimer));
   .voucher-details-leave-active {
     transition: none !important;
   }
+}
+
+.voucher-ticket--compact {
+  border-width: 2px;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+.voucher-ticket--compact .voucher-ticket__head {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 12px 14px 8px;
+}
+.voucher-ticket--compact .voucher-ticket__package {
+  margin: 0;
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+.voucher-ticket--compact .voucher-ticket__summary {
+  padding: 0 14px 10px;
+}
+.voucher-ticket--compact .voucher-ticket__summary > strong {
+  font-size: 1.35rem;
+  line-height: 1.3;
+}
+.voucher-ticket--compact .voucher-ticket__facts {
+  gap: 5px;
+  margin-top: 6px;
+}
+.voucher-ticket--compact .voucher-ticket__facts span {
+  min-height: 26px;
+  padding: 3px 7px;
+  font-size: 0.7rem;
+}
+.voucher-ticket--compact .voucher-ticket__body {
+  padding: 10px 14px;
+}
+.voucher-ticket--compact .voucher-ticket__copy {
+  min-height: 48px;
+  padding: 4px 8px 4px 10px;
+  gap: 8px;
+}
+.voucher-ticket--compact .voucher-ticket__pin {
+  margin-top: 6px;
+}
+.voucher-ticket--compact .voucher-ticket__details-toggle {
+  margin-top: 4px;
+  min-height: 44px;
+  padding-top: 4px;
 }
 </style>
