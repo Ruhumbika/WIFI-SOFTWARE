@@ -722,5 +722,49 @@ export const portalMessages: [string, string][] = [
   [
     "Internet packages",
     "Vifurushi vya intaneti"
+  ],
+  [
+    "Recovery details are incorrect. Check the phone number and recovery PIN.",
+    "Taarifa za kurejesha si sahihi. Hakiki namba ya simu na PIN ya kurejesha."
+  ],
+  [
+    "Could not reach the service. Check your connection and try again.",
+    "Huduma haijafikiwa. Hakiki muunganisho wako kisha ujaribu tena."
+  ],
+  [
+    "Verification could not be completed right now. Please try again later.",
+    "Uthibitisho haujakamilika kwa sasa. Tafadhali jaribu tena baadaye."
+  ],
+  [
+    "Recovery PIN",
+    "PIN ya kurejesha"
+  ],
+  [
+    "Forgot PIN?",
+    "Umesahau PIN?"
+  ],
+  [
+    "Pay",
+    "Lipa"
+  ],
+  [
+    "Continue to secure checkout.",
+    "Endelea kwenye ukurasa salama wa malipo."
+  ],
+  [
+    "Opening secure checkout…",
+    "Tunafungua ukurasa wa malipo…"
+  ],
+  [
+    "Waiting for payment confirmation",
+    "Tunasubiri uthibitisho wa malipo"
+  ],
+  [
+    "Complete payment on Snippe. This page updates after confirmation.",
+    "Kamilisha malipo kwenye Snippe. Ukurasa huu utasasishwa malipo yakithibitishwa."
+  ],
+  [
+    "Continue to payment",
+    "Endelea kulipa"
   ]
 ]

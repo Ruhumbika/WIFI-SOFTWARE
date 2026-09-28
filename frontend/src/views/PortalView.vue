@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { providePortalLanguage } from '../i18n/portalLanguage'
-const { t, locale, toggleLanguage, languageLabel } = providePortalLanguage()
+import { providePortalLanguage } from "../i18n/portalLanguage";
+const { t, locale, toggleLanguage, languageLabel } = providePortalLanguage();
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { api } from "../api";
 import { formatPhoneInput } from "../utils/formatPhoneInput";
@@ -94,6 +94,14 @@ watch(
 
 const orderStorageKey = "rjay_current_order";
 const params = new URLSearchParams(location.search);
+if (params.has('payment-return')) {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('rjay_hotspot_context') || '{}');
+    for (const key of ['mac', 'link-login-only', 'link-orig']) {
+      if (!params.has(key) && typeof saved[key] === 'string') params.set(key, saved[key]);
+    }
+  } catch { /* Missing context falls back to the existing manual connection flow. */ }
+}
 const deviceMac = params.get("mac") || "";
 const linkLogin = params.get("link-login-only") || "";
 const linkOrig = params.get("link-orig") || "";
@@ -180,7 +188,6 @@ function onPhoneInput(event: Event) {
   const input = event.target as HTMLInputElement;
   phone.value = formatPhoneInput(input.value);
   input.value = phone.value;
-  if (phoneValid.value && !checkoutSubmitted.value) void buy();
 }
 
 async function buy() {
@@ -210,7 +217,7 @@ async function buy() {
     sessionStorage.setItem(orderStorageKey, order.value.uuid);
     if (order.value.access_token)
       sessionStorage.setItem("rjay_order_token", order.value.access_token);
-    checkoutStep.value = "Tunatuma ombi kwenye simu…";
+    checkoutStep.value = "Opening secure checkout…";
     await requestPayment();
   } catch (e: any) {
     if (!order.value) checkoutSubmitted.value = false;
@@ -235,6 +242,13 @@ async function requestPayment() {
     `/public/orders/${encodeURIComponent(order.value.uuid)}/pay`,
   );
   order.value = response.data.order;
+  if (response.data.checkout_url) {
+    const checkout = new URL(response.data.checkout_url);
+    if (checkout.protocol !== 'https:' || checkout.username || checkout.password) throw new Error('Invalid checkout URL');
+    sessionStorage.setItem('rjay_hotspot_context', JSON.stringify({ mac: deviceMac, 'link-login-only': linkLogin, 'link-orig': linkOrig }));
+    window.location.assign(checkout.href);
+    return;
+  }
   startPoll();
 }
 
@@ -622,7 +636,9 @@ const connectionProblem = computed(() =>
 const paymentServiceUnavailable = computed(() =>
   error.value.includes("Huduma ya malipo haipatikani"),
 );
+const hostedCheckout = computed(() => !order.value?.payment || order.value.payment.provider === 'snippe' && !!order.value.payment.session_reference);
 const paymentTitle = computed(() => {
+  if (hostedCheckout.value) return loading.value ? 'Opening secure checkout…' : 'Waiting for payment confirmation';
   if (loading.value || resendBusy.value) return "Tunatuma ombi…";
   if (paymentServiceUnavailable.value) return "Malipo hayapatikani";
   if (paymentFailed.value) return "Malipo hayajakamilika";
@@ -633,6 +649,7 @@ const paymentTitle = computed(() => {
 });
 
 const paymentMessage = computed(() => {
+  if (hostedCheckout.value) return error.value || 'Complete payment on Snippe. This page updates after confirmation.';
   if (paymentServiceUnavailable.value) return "Jaribu tena baadaye.";
   if (error.value) return error.value;
   if (paymentAwaitingPin.value) return "";
@@ -754,23 +771,39 @@ const browsingDestination = computed(() => {
         <div>
           <h1>MWANAKITAA <span>KITONGA</span></h1>
         </div>
-        <button type="button" class="portal-language" :aria-label="languageLabel" :title="languageLabel" @click="toggleLanguage">{{ locale === 'sw' ? 'EN' : 'SW' }}</button>
+        <button
+          type="button"
+          class="portal-language"
+          :aria-label="languageLabel"
+          :title="languageLabel"
+          @click="toggleLanguage"
+        >
+          {{ locale === "sw" ? "EN" : "SW" }}
+        </button>
       </header>
       <main>
         <section class="access-shell">
-          <div class="access-tabs" role="group" :aria-label="t('Voucher access')">
+          <div
+            class="access-tabs"
+            role="group"
+            :aria-label="t('Voucher access')"
+          >
             <button
               :class="{ active: portalMode !== 'recovery' }"
               :aria-pressed="portalMode !== 'recovery'"
               @click="portalMode = 'redeem'"
             >
-              <i class="bi bi-wifi" aria-hidden="true"></i> {{ t("Use voucher") }} </button>
+              <i class="bi bi-wifi" aria-hidden="true"></i>
+              {{ t("Use voucher") }}
+            </button>
             <button
               :class="{ active: portalMode === 'recovery' }"
               :aria-pressed="portalMode === 'recovery'"
               @click="portalMode = 'recovery'"
             >
-              <i class="bi bi-ticket-perforated" aria-hidden="true"></i> {{ t("My vouchers") }} </button>
+              <i class="bi bi-ticket-perforated" aria-hidden="true"></i>
+              {{ t("My vouchers") }}
+            </button>
           </div>
           <VoucherAccessPanel
             v-if="!order || portalMode !== 'buy'"
@@ -786,7 +819,9 @@ const browsingDestination = computed(() => {
             v-else-if="order.voucher"
             class="btn btn-link w-100"
             @click="portalMode = 'recovery'"
-          > {{ t("My voucher") }} </button>
+          >
+            {{ t("My voucher") }}
+          </button>
         </section>
         <div class="purchase-flow">
           <section
@@ -799,19 +834,29 @@ const browsingDestination = computed(() => {
             aria-live="polite"
           >
             <template v-if="recoveryDisplay"
-              ><h2 class="h4"> {{ t("Recovery PIN:") }} {{ recoveryDisplay }}</h2>
-              <p> {{ t("Keep this recovery PIN. You can use it to recover this voucher later.") }} </p>
+              ><h2 class="h4">
+                {{ t("Recovery PIN:") }} {{ recoveryDisplay }}
+              </h2>
+              <p>
+                {{
+                  t(
+                    "Keep this recovery PIN. You can use it to recover this voucher later.",
+                  )
+                }}
+              </p>
               <button
                 class="btn btn-primary"
                 @click="
                   recoveryDisplay = '';
                   prepareConnection();
                 "
-              > {{ t("I have saved it — Continue") }} </button></template
+              >
+                {{ t("I have saved it — Continue") }}
+              </button></template
             >
             <template v-else
               ><p v-if="recoveryError">{{ t(recoveryError) }}</p>
-              <p> {{ t("Save a recovery PIN to find this voucher later.") }} </p>
+              <p>{{ t("Save a recovery PIN to find this voucher later.") }}</p>
               <button
                 class="btn btn-outline-primary"
                 :disabled="recoveryBusy"
@@ -827,8 +872,8 @@ const browsingDestination = computed(() => {
             aria-live="polite"
           >
             <div class="status-eye"><SignalEye status="loading" /></div>
-            <h1> {{ t("Tunakagua malipo yako") }} </h1>
-            <p> {{ t("Tafadhali subiri…") }} </p>
+            <h1>{{ t("Tunakagua malipo yako") }}</h1>
+            <p>{{ t("Tafadhali subiri…") }}</p>
           </section>
 
           <section
@@ -837,9 +882,11 @@ const browsingDestination = computed(() => {
             aria-live="polite"
           >
             <div class="status-eye"><SignalEye status="error" /></div>
-            <h1> {{ t("Hatujaweza kukagua malipo") }} </h1>
+            <h1>{{ t("Hatujaweza kukagua malipo") }}</h1>
             <p>{{ t(restoreMessage) }}</p>
-            <button class="primary-action mt-4" @click="retryRestore"> {{ t("Jaribu tena") }} </button>
+            <button class="primary-action mt-4" @click="retryRestore">
+              {{ t("Jaribu tena") }}
+            </button>
           </section>
 
           <section
@@ -847,7 +894,7 @@ const browsingDestination = computed(() => {
             class="portal-purchase-card"
           >
             <div class="plans-heading">
-              <h2> {{ t("Buy internet") }} </h2>
+              <h2>{{ t("Buy internet") }}</h2>
               <span> {{ t("Chagua kifurushi") }} </span>
             </div>
 
@@ -874,14 +921,20 @@ const browsingDestination = computed(() => {
                 :aria-label="`${plan.name}, TZS ${Number(plan.price).toLocaleString()}. ${t('Enter your payment number')}`"
                 @click="choosePlan(plan)"
               >
+                <del
+                  v-if="Number(plan.original_price) > Number(plan.price)"
+                  class="plan-original-price"
+                  :aria-label="t('Bei ya awali')"
+                  >TZS {{ Number(plan.original_price).toLocaleString() }}</del
+                >
+                <span
+                  v-if="plan.recommended"
+                  class="plan-option__recommended"
+                  >{{ t("Popular") }}</span
+                >
                 <div class="plan-option__main">
                   <div class="plan-option__title-row">
                     <strong>{{ plan.name }}</strong>
-                    <span
-                      v-if="plan.recommended"
-                      class="plan-option__recommended"
-                      > {{ t("Popular") }} </span
-                    >
                   </div>
                   <div class="plan-option__meta">
                     <span
@@ -899,7 +952,6 @@ const browsingDestination = computed(() => {
                   </div>
                 </div>
                 <div class="plan-option__price">
-                  <del v-if="Number(plan.original_price) > Number(plan.price)" class="plan-original-price" :aria-label="t('Bei ya awali')">TZS {{ Number(plan.original_price).toLocaleString() }}</del>
                   <strong>{{ Number(plan.price).toLocaleString() }}</strong
                   ><span>TZS</span>
                   <i class="bi bi-arrow-right-circle" aria-hidden="true"></i>
@@ -945,8 +997,8 @@ const browsingDestination = computed(() => {
                 </div>
                 <form @submit.prevent="buy">
                   <div class="mb-3">
-                    <label class="form-label" for="customer-phone"
-                      > {{ t("Namba ya kulipia") }} </label
+                    <label class="form-label" for="customer-phone">
+                      {{ t("Namba ya kulipia") }} </label
                     ><input
                       id="customer-phone"
                       ref="phoneInput"
@@ -960,9 +1012,13 @@ const browsingDestination = computed(() => {
                       placeholder="255 7XX XXX XXX"
                       aria-describedby="phone-help"
                       :disabled="loading || checkoutSubmitted"
-                    /><small id="phone-help" class="text-secondary">{{ t(phone.length && !phoneValid
-                        ? "Hakiki namba ya simu."
-                        : "Ombi hutumwa namba ikikamilika.") }}</small>
+                    /><small id="phone-help" class="text-secondary">{{
+                      t(
+                        phone.length && !phoneValid
+                          ? "Hakiki namba ya simu."
+                          : "Continue to secure checkout.",
+                      )
+                    }}</small>
                   </div>
                   <div v-if="error" class="alert alert-danger" role="alert">
                     {{ t(error) }}
@@ -978,12 +1034,15 @@ const browsingDestination = computed(() => {
                     /></span>
                     {{ t(checkoutStep) }}
                   </p>
+                  <button v-if="!order" type="submit" class="primary-action w-100 mt-3" :disabled="loading || !phoneValid">{{ t(loading ? 'Preparing…' : 'Pay') }}</button>
                   <button
-                    v-if="error"
+                    v-if="error && order"
                     type="button"
                     class="btn btn-outline-primary mt-2"
                     @click="order ? continuePayment() : buy()"
-                  > {{ t("Jaribu tena") }} </button>
+                  >
+                    {{ t("Jaribu tena") }}
+                  </button>
                 </form>
               </div>
             </dialog>
@@ -1018,14 +1077,14 @@ const browsingDestination = computed(() => {
               {{ t(paymentMessage) }}
             </p>
             <div
-              v-if="paymentAwaitingPin"
+              v-if="paymentAwaitingPin && !hostedCheckout"
               class="payment-countdown"
               :aria-label="t('Muda uliobaki')"
             >
               {{ pushCountdown }}
             </div>
             <button
-              v-if="paymentRequestMissing"
+              v-if="paymentRequestMissing || hostedCheckout"
               class="primary-action"
               :disabled="loading"
               @click="continuePayment"
@@ -1033,11 +1092,17 @@ const browsingDestination = computed(() => {
               <span v-if="loading" class="inline-eye"
                 ><SignalEye status="loading"
               /></span>
-              {{ t(loading
-                  ? "Subiri…"
-                  : error || paymentFailed
-                    ? "Jaribu tena"
-                    : "Tuma ombi") }}
+              {{
+                t(
+                  loading
+                    ? "Subiri…"
+                    : hostedCheckout
+                      ? "Continue to payment"
+                    : error || paymentFailed
+                      ? "Jaribu tena"
+                      : "Tuma ombi",
+                )
+              }}
               <i
                 v-if="!loading"
                 class="bi bi-arrow-right"
@@ -1045,7 +1110,7 @@ const browsingDestination = computed(() => {
               ></i>
             </button>
             <button
-              v-else-if="pushSecondsLeft === 0"
+              v-else-if="pushSecondsLeft === 0 && !hostedCheckout"
               class="primary-action"
               :disabled="resendBusy"
               @click="resendPush"
@@ -1063,9 +1128,9 @@ const browsingDestination = computed(() => {
             aria-live="polite"
           >
             <div class="status-eye"><SignalEye status="loading" /></div>
-            <div class="state-eyebrow"> {{ t("Malipo yamepokelewa") }} </div>
-            <h1> {{ t("Tunaandaa intaneti yako") }} </h1>
-            <p> {{ t("Tafadhali subiri, inaweza kuchukua hadi dakika 6.") }} </p>
+            <div class="state-eyebrow">{{ t("Malipo yamepokelewa") }}</div>
+            <h1>{{ t("Tunaandaa intaneti yako") }}</h1>
+            <p>{{ t("Tafadhali subiri, inaweza kuchukua hadi dakika 6.") }}</p>
             <div class="connection-progress"><span></span></div>
           </section>
 
@@ -1075,16 +1140,24 @@ const browsingDestination = computed(() => {
             aria-live="polite"
           >
             <div class="status-eye"><SignalEye status="error" /></div>
-            <div class="state-eyebrow"> {{ t("Malipo yamepokelewa") }} </div>
+            <div class="state-eyebrow">{{ t("Malipo yamepokelewa") }}</div>
             <h1>
-              {{ t(voucherUnavailable
-                  ? "Huduma ya Wi-Fi haipatikani sasa"
-                  : "Maandalizi yanachukua muda") }}
+              {{
+                t(
+                  voucherUnavailable
+                    ? "Huduma ya Wi-Fi haipatikani sasa"
+                    : "Maandalizi yanachukua muda",
+                )
+              }}
             </h1>
             <p>
-              {{ t(voucherUnavailable
-                  ? "Voucher hii haipatikani tena. Tafadhali wasiliana na msimamizi."
-                  : "Malipo yamethibitishwa. Intaneti haijawa tayari; usilipe tena.") }}
+              {{
+                t(
+                  voucherUnavailable
+                    ? "Voucher hii haipatikani tena. Tafadhali wasiliana na msimamizi."
+                    : "Malipo yamethibitishwa. Intaneti haijawa tayari; usilipe tena.",
+                )
+              }}
             </p>
             <button
               class="primary-action mt-4"
@@ -1129,9 +1202,13 @@ const browsingDestination = computed(() => {
               <span v-else class="inline-eye"
                 ><SignalEye :status="portalEyeStatus"
               /></span>
-              {{ t(connectionState === "manual"
-                  ? "Connect now"
-                  : "Try connection again") }}
+              {{
+                t(
+                  connectionState === "manual"
+                    ? "Connect now"
+                    : "Try connection again",
+                )
+              }}
             </button>
 
             <button
@@ -1141,10 +1218,13 @@ const browsingDestination = computed(() => {
               "
               class="primary-action"
               @click="startNewPurchase"
-            > {{ t("Buy another package") }} </button>
+            >
+              {{ t("Buy another package") }}
+            </button>
 
             <div v-if="order?.voucher" class="voucher-secondary">
-              <p v-if="order.masked_phone"> {{ t("Linked phone:") }} {{ order.masked_phone }}
+              <p v-if="order.masked_phone">
+                {{ t("Linked phone:") }} {{ order.masked_phone }}
               </p>
               <VoucherCard
                 :voucher="{
@@ -1166,9 +1246,9 @@ const browsingDestination = computed(() => {
           >
             <div class="online-hero">
               <div class="status-eye"><SignalEye status="success" /></div>
-              <div class="state-eyebrow"> {{ t("Connected successfully") }} </div>
-              <h1> {{ t("You’re online") }} </h1>
-              <p> {{ t("Internet access is active on this device.") }} </p>
+              <div class="state-eyebrow">{{ t("Connected successfully") }}</div>
+              <h1>{{ t("You’re online") }}</h1>
+              <p>{{ t("Internet access is active on this device.") }}</p>
             </div>
 
             <div class="online-summary">
@@ -1189,11 +1269,14 @@ const browsingDestination = computed(() => {
             <a
               class="primary-action primary-action--link"
               :href="browsingDestination"
-            > {{ t("Continue browsing") }} <i class="bi bi-arrow-right" aria-hidden="true"></i>
+            >
+              {{ t("Continue browsing") }}
+              <i class="bi bi-arrow-right" aria-hidden="true"></i>
             </a>
 
             <div class="voucher-secondary">
-              <p v-if="order?.masked_phone"> {{ t("Linked phone:") }} {{ order.masked_phone }}
+              <p v-if="order?.masked_phone">
+                {{ t("Linked phone:") }} {{ order.masked_phone }}
               </p>
               <VoucherCard
                 :voucher="{
@@ -1211,7 +1294,9 @@ const browsingDestination = computed(() => {
       </main>
 
       <footer class="portal-footer">
-        <i class="bi bi-shield-check" aria-hidden="true"></i> {{ t("Malipo salama · Voucher moja kwa kifaa kimoja") }} </footer>
+        <i class="bi bi-shield-check" aria-hidden="true"></i>
+        {{ t("Malipo salama · Voucher moja kwa kifaa kimoja") }}
+      </footer>
     </div>
   </div>
 </template>
@@ -2534,8 +2619,74 @@ v .plan-option:not(:active):not(:focus-visible) .plan-option__price i {
   flex-shrink: 0;
   vertical-align: middle;
 }
- .plan-option__price { flex-wrap: wrap; }
-.plan-option__price .plan-original-price { flex-basis: 100%; color: #64748b; font-size: 12px; line-height: 1.2; font-weight: 400; }
-.portal-language { min-width:44px; min-height:44px; padding:0 9px; flex-shrink:0; border:1px solid #fff; border-radius:12px; background:#edf3f8; color:#185e87; font-size:13px; font-weight:750; box-shadow:3px 3px 7px #cbd5df,-3px -3px 7px #fff; }
-.portal-language:focus-visible { outline:3px solid #16879e; outline-offset:2px; }
+.plan-option {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.plan-option__main,
+.plan-option__price {
+  position: relative;
+  z-index: 1;
+}
+.plan-option__price {
+  flex-wrap: wrap;
+}
+.plan-original-price {
+  position: absolute;
+  z-index: 0;
+  top: 46%;
+  right: 7px;
+  max-width: calc(100% - 20px);
+  transform: rotate(-28deg);
+  transform-origin: center;
+  color: rgba(24, 94, 135, 0.32);
+  font-size: clamp(11px, 3vw, 14px);
+  line-height: 1;
+  font-weight: 750;
+  white-space: nowrap;
+  text-decoration-thickness: 1px;
+  pointer-events: none;
+}
+.plan-option:last-child:nth-child(odd) .plan-original-price {
+  right: 35%;
+}
+
+.portal-language {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 9px;
+  flex-shrink: 0;
+  border: 1px solid #fff;
+  border-radius: 12px;
+  background: #edf3f8;
+  color: #185e87;
+  font-size: 13px;
+  font-weight: 750;
+  box-shadow:
+    3px 3px 7px #cbd5df,
+    -3px -3px 7px #fff;
+}
+.portal-language:focus-visible {
+  outline: 3px solid #16879e;
+  outline-offset: 2px;
+}
+.plan-option > .plan-option__recommended {
+  position: absolute;
+  z-index: 0;
+  top: 13px;
+  right: 3px;
+  transform: rotate(28deg);
+  padding: 0;
+  max-width: 65%;
+  background: transparent;
+  color: rgba(18, 103, 123, 0.32);
+  border: 0;
+  box-shadow: none;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 750;
+  white-space: nowrap;
+  pointer-events: none;
+}
 </style>

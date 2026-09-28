@@ -36,7 +36,7 @@ class ClickPesaPaymentTest extends TestCase
         ]);
     }
 
-    public function test_phone_only_order_and_provider_verified_payment(): void
+    public function test_historical_clickpesa_payment_remains_reconcilable(): void
     {
         $this->setupProvider();
         $order = $this->postJson('/api/public/orders', [
@@ -58,13 +58,9 @@ class ClickPesaPaymentTest extends TestCase
             return Http::response([], 404);
         });
         $headers = ['X-Order-Token' => Crypt::encryptString($order['uuid'])];
-        $this->postJson('/api/public/orders/'.$order['uuid'].'/pay', [], $headers)->assertOk();
-        $payment = Payment::where('order_id', Order::where('uuid', $order['uuid'])->firstOrFail()->id)->firstOrFail();
-        $this->assertSame('clickpesa', $payment->provider);
-        $this->assertSame(20, strlen($payment->reference));
-        Http::assertSent(fn($request) => str_ends_with($request->url(), '/initiate-ussd-push-request')
-            && $request['phoneNumber'] === '255700000001'
-            && !isset($request['customer']) && !isset($request['email']));
+        $payment = Payment::create(['uuid'=>(string) Str::uuid(), 'order_id'=>Order::where('uuid',$order['uuid'])->firstOrFail()->id,
+            'provider'=>'clickpesa', 'reference'=>'R1234567890123456789', 'status'=>'pending', 'amount'=>500,
+            'currency'=>'TZS', 'idempotency_key'=>'historical-clickpesa']);
 
         $event = ['event' => 'PAYMENT RECEIVED', 'data' => ['orderReference' => $payment->reference]];
         $this->postJson('/api/webhooks/clickpesa', $event)->assertStatus(400);

@@ -1,77 +1,72 @@
 <?php
-
 namespace App\Http\Controllers;
 
 use App\Jobs\ProvisionPaidOrder;
+use App\Models\Order;
 use App\Models\Payment;
 use App\Models\PaymentEvent;
+use App\Models\PaymentGatewayAccount;
 use App\Services\SnippeClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Throwable;
 
 class SnippeWebhookController extends Controller
 {
-    public function __invoke(Request $request, SnippeClient $snippe)
+    public function legacy(Request $request, SnippeClient $client)
     {
-        try {
-            $event = $snippe->verifyWebhook(
-                $request->getContent(),
-                $request->header('X-Webhook-Timestamp'),
-                $request->header('X-Webhook-Signature')
-            );
-        } catch (Throwable $e) {
-            return response()->json(['message' => 'Invalid webhook signature.'], 400);
-        }
-
-        $eventId = $event['id'] ?? null;
-        $type = $event['type'] ?? $request->header('X-Webhook-Event');
-        $reference = data_get($event, 'data.reference');
-        if (!$eventId || !$reference || !$type) return response()->json(['message'=>'Malformed webhook'], 422);
-        if (PaymentEvent::where('event_id', $eventId)->exists()) return response()->json(['ok'=>true,'duplicate'=>true]);
-
-        $payment = Payment::where('reference', $reference)->first();
-        if (!$payment) return response()->json(['message' => 'Payment reference is not ready.'], 503);
-        if ($type === 'payment.completed' && (
-            !is_int(data_get($event, 'data.amount.value'))
-            || data_get($event, 'data.amount.value') !== (int) $payment->amount
-            || data_get($event, 'data.amount.currency') !== $payment->currency
-            || (data_get($event, 'data.metadata.order_uuid') !== null
-                && data_get($event, 'data.metadata.order_uuid') !== $payment->order->uuid)
-        )) return response()->json(['message' => 'Payment details do not match the order.'], 422);
-
-        $shouldProvision = DB::transaction(function () use ($payment, $event, $eventId, $reference, $type) {
-            $payment = Payment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
-            if (PaymentEvent::where('event_id', $eventId)->exists()) return false;
-            $shouldProvision = false;
-            if ($type === 'payment.completed') {
-                if ($payment->status !== 'completed') {
-                    $order = $payment->order;
-                    $payment->forceFill([
-                        'status'=>'completed', 'completed_at'=>now(),
-                        'external_reference'=>data_get($event,'data.external_reference'),
-                        'provider_payload'=>$event,
-                    ])->save();
-                    if (!$order->paid_at) {
-                        $order->forceFill(['status'=>'paid','paid_at'=>now()])->save();
-                        $shouldProvision = true;
-                    }
-                }
-            } elseif (in_array($type, ['payment.failed','payment.voided','payment.expired'], true) && $payment->status !== 'completed') {
-                $payment->forceFill([
-                    'status'=>str_replace('payment.','',$type),
-                    'failed_reason'=>data_get($event,'data.failure_reason'),
-                    'provider_payload'=>$event,
-                ])->save();
+        // Historical callback URLs can only resolve an explicitly linked legacy payment.
+        $reference = $request->input('data.reference');
+        abort_unless(is_string($reference), 422);
+        $payments = Payment::where('provider','snippe')->whereNull('session_reference')->where('reference',$reference)->whereNotNull('payment_gateway_account_id')->get();
+        abort_unless($payments->count() === 1, 503, 'Legacy merchant mapping is required.');
+        return $this->__invoke($request, $payments->first()->gatewayAccount, $client);
+    }
+    public function __invoke(Request $request, PaymentGatewayAccount $gateway, SnippeClient $client)
+    {
+        try { $event = $client->verifyWebhook($gateway, $request->getContent(), $request->header('X-Webhook-Timestamp'), $request->header('X-Webhook-Signature')); }
+        catch (\Throwable $e) { return response()->json(['message'=>'Invalid webhook signature.'],400); }
+        $type = $event['type'] ?? null;
+        $reference = data_get($event,'data.reference');
+        $session = data_get($event,'data.session_reference');
+        abort_unless(is_string($reference) && $reference !== '' && strlen($reference) <= 255
+            && is_string($type) && in_array($type,['payment.completed','payment.failed','payment.expired','payment.voided'],true)
+            && ($session === null || is_string($session)), 422, 'Malformed webhook.');
+        // Sessions documentation omits event IDs; the signed payment reference + type is a stable fallback.
+        abort_if(isset($event['id']) && (!is_string($event['id']) || strlen($event['id']) > 255),422,'Invalid event ID.');
+        $eventId = 'snippe:'.hash('sha256', $gateway->uuid.'|'.($event['id'] ?? ($type.'|'.$reference.'|'.$session)));
+        $result = DB::transaction(function () use ($gateway,$event,$eventId,$reference,$session,$type) {
+            $query = Payment::where('provider','snippe')->where('payment_gateway_account_id',$gateway->id);
+            $payment = ($session ? $query->where('session_reference',$session) : $query->whereNull('session_reference')->where('reference',$reference))->first();
+            abort_unless($payment, 503, 'Payment reference is not ready.');
+            $order = Order::lockForUpdate()->findOrFail($payment->order_id);
+            $payment = Payment::lockForUpdate()->findOrFail($payment->id);
+            abort_unless($payment->business_id === $gateway->business_id && $order->business_id === $gateway->business_id
+                && (int) $payment->amount === (int) $order->amount && $payment->currency === $order->currency
+                && is_int(data_get($event,'data.amount.value')) && data_get($event,'data.amount.value') === (int) $payment->amount
+                && data_get($event,'data.amount.currency') === $payment->currency, 422, 'Payment details do not match.');
+            foreach (['order_uuid'=>$order->uuid,'payment_uuid'=>$payment->uuid,'business_uuid'=>$gateway->business->uuid,'system'=>'wifi'] as $key=>$expected) {
+                $actual = data_get($event,'data.metadata.'.$key);
+                abort_if($actual !== null && $actual !== $expected,422,'Payment metadata does not match.');
             }
-            PaymentEvent::create([
-                'payment_id'=>$payment->id, 'event_id'=>$eventId, 'event_type'=>$type,
-                'reference'=>$reference, 'payload'=>$event, 'processed_at'=>now(),
-            ]);
-            return $shouldProvision;
+            if ($type === 'payment.completed') abort_unless(data_get($event,'data.status') === 'completed',422,'Payment status does not match.');
+            if (PaymentEvent::where('event_id',$eventId)->exists()) return ['duplicate'=>true];
+            if ($payment->status === 'completed') {
+                abort_unless($payment->reference === $reference,422,'Completed payment reference does not match.');
+            } elseif ($type === 'payment.completed') {
+                $payment->forceFill(['reference'=>$reference,'status'=>'completed','completed_at'=>now(),
+                    'provider_payload'=>['type'=>$type,'reference'=>$reference,'session_reference'=>$session]])->save();
+                if (!$order->paid_at) {
+                    $order->forceFill(['status'=>'paid','paid_at'=>now()])->save();
+                    ProvisionPaidOrder::dispatch($order->id)->afterCommit();
+                }
+            } elseif (!$session) {
+                $payment->forceFill(['status'=>substr($type,8)])->save();
+            }
+            // A failed hosted-checkout attempt does not expire its reusable session.
+            PaymentEvent::create(['payment_id'=>$payment->id,'event_id'=>$eventId,'event_type'=>$type,'reference'=>$reference,
+                'payload'=>['type'=>$type,'reference'=>$reference,'session_reference'=>$session], 'processed_at'=>now()]);
+            return ['duplicate'=>false];
         });
-
-        if ($shouldProvision) ProvisionPaidOrder::dispatch($payment->order_id)->afterResponse();
-        return response()->json(['ok'=>true]);
+        return response()->json(['ok'=>true]+$result);
     }
 }

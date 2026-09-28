@@ -67,10 +67,21 @@ async function run(action: () => Promise<void>) {
   busy.value = true; message.value = ''; requestStatus.value='idle'
   try { await action(); requestStatus.value='success' }
   catch (e: any) {
+    const status = e.response?.status
+    if (status === 403) {
+      forget(); message.value = 'Your access has expired. Verify this voucher again.'
+    } else if (status === 429) {
+      message.value = 'Too many attempts. Please wait before trying again.'
+    } else if (status === 422) {
+      message.value = props.mode === 'redeem'
+        ? "We couldn't verify that voucher. Check the code and PIN."
+        : 'Recovery details are incorrect. Check the phone number and recovery PIN.'
+    } else if (!e.response) {
+      message.value = 'Could not reach the service. Check your connection and try again.'
+    } else {
+      message.value = 'Verification could not be completed right now. Please try again later.'
+    }
     requestStatus.value='error'
-    if (e.response?.status === 403) { forget(); message.value = 'Your access has expired. Verify this voucher again.' }
-    else if (e.response?.status === 429) message.value = 'Too many attempts. Please wait before trying again.'
-    else message.value = e.response?.status === 422 ? (props.mode === 'redeem' ? "We couldn't verify that voucher. Check the code and PIN." : "We couldn't verify those recovery details.") : 'We could not complete that request. Your voucher is safe. Please try again.'
   } finally { busy.value = false }
 }
 function applyState(value: string) { state.value = value; message.value = messages[value] || 'Please try again.' }
@@ -162,7 +173,10 @@ onUnmounted(() => { if (poll) clearInterval(poll) })
 <template>
   <section class="portal-state-card voucher-access text-start" :class="{compact}">
     <h1 v-if="!compact" class="h3">{{ t(mode === 'redeem' ? 'Use a Voucher' : 'My Vouchers') }}</h1>
-    <p v-if="message" role="status" class="alert alert-info mt-3">{{ t(message) }}</p>
+    <div v-if="message" :role="requestStatus === 'error' ? 'alert' : 'status'" class="access-notice" :class="{ 'access-notice--error': requestStatus === 'error' }">
+      <i class="bi" :class="requestStatus === 'error' ? 'bi-exclamation-circle' : 'bi-info-circle'" aria-hidden="true"></i>
+      <p>{{ t(message) }}</p>
+    </div>
     <div v-if="issuedPin" class="alert alert-warning">
       <strong> {{ t("Recovery PIN:") }} {{ issuedPin }}</strong><p> {{ t("Keep this recovery PIN. You can use it to recover this voucher later.") }} </p>
       <button class="btn btn-outline-dark" @click="issuedPin=''"> {{ t("I have saved it") }} </button>
@@ -201,12 +215,18 @@ onUnmounted(() => { if (poll) clearInterval(poll) })
         <small id="recovery-phone-feedback" class="phone-feedback" :class="{ 'phone-feedback--error':phoneInvalid }" aria-live="polite">{{ t(phoneInvalid ? 'Weka namba sahihi ya Tanzania.' : normalizedPhone ? '✓ Namba imekamilika' : '') }}</small>
         <button class="btn btn-primary w-100 access-connect" :disabled="busy || !normalizedPhone"><span>{{ t(busy ? 'Searching…' : 'Find vouchers') }}</span><span class="button-eye"><SignalEye :status="eyeStatus" /></span></button>
       </form>
-      <form v-if="selected" class="mt-4" @submit.prevent="verify">
-        <h2 class="h5">{{ selected.plan.name }} · {{ selected.code }}</h2>
-        <label for="recovery-pin" class="form-label"> {{ t("This voucher’s recovery PIN") }} </label>
-        <input id="recovery-pin" v-model="recoveryPin" class="form-control mb-3" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" required />
-        <button class="btn btn-primary" :disabled="busy || !normalizedPhone"> {{ t("Verify") }} </button>
-        <p class="small mt-2"> {{ t("Lost your recovery PIN? Contact the Wi-Fi operator.") }} </p>
+      <form v-if="selected" class="recovery-verify" @submit.prevent="verify">
+        <h2>{{ selected.plan.name }}</h2>
+        <p class="recovery-verify__code">{{ selected.code }}</p>
+        <label for="recovery-pin" class="form-label">{{ t('Recovery PIN') }}</label>
+        <div class="recovery-verify__row">
+          <input id="recovery-pin" v-model="recoveryPin" class="form-control" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="off" required :disabled="busy" />
+          <button type="submit" class="recovery-verify__submit" :disabled="busy || !normalizedPhone">{{ t(busy ? 'Checking…' : 'Verify') }}</button>
+        </div>
+        <details class="recovery-verify__help">
+          <summary>{{ t('Forgot PIN?') }}</summary>
+          <p>{{ t('Contact the Wi-Fi operator for support.') }}</p>
+        </details>
       </form>
       <div v-else-if="searched" class="recovery-results" :aria-busy="busy">
         <div class="recovery-results__toolbar">
@@ -296,4 +316,30 @@ button:focus-visible { outline:3px solid #16879e; outline-offset:3px; }
   .recovery-ticket__footer { gap: 4px; }
   .recovery-ticket__action { padding: 0 8px; }
 }
+.access-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid #c2d8e4;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #f2f7fb, #e2edf3);
+  color: #185e87;
+  box-shadow: 3px 3px 7px #cbd5df, -3px -3px 7px #fff;
+}
+.access-notice > i { flex-shrink: 0; margin-top: 1px; font-size: 17px; }
+.access-notice p { min-width: 0; margin: 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.access-notice--error { border-inline-start: 3px solid #198ab5; }
+.recovery-verify { margin-top: 22px; min-width: 0; }
+.recovery-verify h2 { margin: 0; font-size: 16px; line-height: 1.4; font-weight: 750; color: #233746; overflow-wrap: anywhere; }
+.recovery-verify__code { margin: 4px 0 14px; font-size: 12px; color: #526571; overflow-wrap: anywhere; }
+.recovery-verify__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
+.recovery-verify__row .form-control { min-width: 0; width: 100%; height: 46px; text-align: center; font-size: 18px; letter-spacing: .22em; padding: 8px; }
+.recovery-verify__submit { min-height: 46px; padding: 0 12px; border: 1px solid #fff; border-radius: 12px; color: #185e87; background: linear-gradient(145deg, #f3f7fb, #dfe8ef); box-shadow: 3px 3px 7px #cbd5df, -3px -3px 7px #fff; font-size: 13px; font-weight: 650; }
+.recovery-verify__submit:disabled { opacity: .55; box-shadow: none; }
+.recovery-verify__help { margin-top: 7px; color: #526571; font-size: 12px; }
+.recovery-verify__help summary { width: fit-content; min-height: 44px; padding: 12px 0; cursor: pointer; color: #185e87; }
+.recovery-verify__help summary:focus-visible { outline: 2px solid #198ab5; outline-offset: 2px; }
+.recovery-verify__help p { margin: 0 0 8px; line-height: 1.5; }
 </style>

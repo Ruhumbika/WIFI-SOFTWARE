@@ -1,88 +1,88 @@
 <?php
-
 namespace App\Services;
 
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\PaymentGatewayAccount;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 class SnippeClient
 {
-    public function createPayment(Order $order, Payment $payment): array
+    public function assertConfigured(PaymentGatewayAccount $gateway): void
     {
-        $apiKey = $this->apiKey();
-        $webhookUrl = (string) config('snippe.webhook_url');
-        if ((string) config('snippe.webhook_secret') === '' || !filter_var($webhookUrl, FILTER_VALIDATE_URL) || !str_starts_with($webhookUrl, 'https://')) {
-            throw new RuntimeException('A Snippe webhook secret and HTTPS webhook URL are required.');
+        if ($gateway->provider !== 'snippe' || !$gateway->active || $gateway->business?->status !== 'active'
+            || !$gateway->api_key_configured || !$gateway->webhook_secret_configured) {
+            throw new RuntimeException('Payment gateway is unavailable.');
         }
-
-        $name = trim((string) $order->customer_name);
-        $parts = preg_split('/\s+/', $name, 2);
-        if (count($parts) < 2 || !$parts[1] || !filter_var($order->customer_email, FILTER_VALIDATE_EMAIL)) {
-            throw new RuntimeException('Customer name and email are required for Snippe payments.');
-        }
-        $digits = preg_replace('/\D+/', '', $order->customer_phone);
-
-        $payload = [
-            'payment_type' => 'mobile',
-            'details' => ['amount' => $order->amount, 'currency' => 'TZS'],
-            'phone_number' => $digits,
-            'customer' => ['firstname' => $parts[0], 'lastname' => $parts[1], 'email' => $order->customer_email],
-            'webhook_url' => $webhookUrl,
-            'metadata' => ['order_id' => $order->order_number, 'order_uuid' => $order->uuid],
-        ];
-
-        return Http::acceptJson()
-            ->withToken($apiKey)
-            ->withHeaders(['Idempotency-Key' => $payment->idempotency_key])
-            ->timeout((int) config('snippe.timeout'))
-            ->post(rtrim(config('snippe.base_url'), '/').'/v1/payments', $payload)
-            ->throw()
-            ->json();
+        $this->assertUrl($gateway->base_url, config('snippe.allowed_api_hosts'));
+        if (parse_url($gateway->base_url, PHP_URL_QUERY) || parse_url($gateway->base_url, PHP_URL_FRAGMENT)) throw new RuntimeException('Invalid API base URL.');
+        if (parse_url($gateway->base_url, PHP_URL_PATH) && parse_url($gateway->base_url, PHP_URL_PATH) !== '/') throw new RuntimeException('Invalid API base URL.');
     }
-
-    public function getPayment(string $reference): array
+    public function assertUrl(string $url, ?array $hosts = null): void
     {
-        return Http::acceptJson()
-            ->withToken($this->apiKey())
-            ->timeout((int) config('snippe.timeout'))
-            ->get(rtrim(config('snippe.base_url'), '/').'/v1/payments/'.rawurlencode($reference))
-            ->throw()->json();
-    }
-
-    public function pushPayment(string $reference): array
-    {
-        return Http::acceptJson()
-            ->withToken($this->apiKey())
-            ->timeout((int) config('snippe.timeout'))
-            ->post(rtrim(config('snippe.base_url'), '/').'/v1/payments/'.rawurlencode($reference).'/push')
-            ->throw()->json();
-    }
-
-    public function verifyWebhook(string $rawBody, ?string $timestamp, ?string $signature): array
-    {
-        $secret = (string) config('snippe.webhook_secret');
-        if ($secret === '' || !$timestamp || !$signature) {
-            throw new RuntimeException('Missing Snippe webhook signature configuration.');
+        $parts = parse_url($url);
+        if (!$parts || ($parts['scheme'] ?? '') !== 'https' || empty($parts['host']) || isset($parts['user']) || isset($parts['pass'])
+            || (isset($parts['port']) && $parts['port'] !== 443)
+            || ($hosts !== null && !in_array(strtolower($parts['host']), $hosts, true))) {
+            throw new RuntimeException('Invalid payment URL.');
         }
-
-        if (abs(time() - (int) $timestamp) > 300) {
-            throw new RuntimeException('Webhook timestamp is outside the 5 minute window.');
-        }
-
-        $expected = hash_hmac('sha256', $timestamp.'.'.$rawBody, $secret);
-        if (!hash_equals($expected, $signature)) {
-            throw new RuntimeException('Invalid Snippe webhook signature.');
-        }
-
-        return json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
     }
-
-    private function apiKey(): string
+    public function checkoutUrl(string $url): string
     {
-        $key = (string) config('snippe.api_key');
-        if ($key === '') throw new RuntimeException('SNIPPE_API_KEY is required.');
-        return $key;
+        $this->assertUrl($url, config('snippe.allowed_checkout_hosts'));
+        return $url;
+    }
+    public function createSession(Order $order, Payment $payment, PaymentGatewayAccount $gateway): array
+    {
+        $this->assertConfigured($gateway);
+        if ($order->business_id !== $gateway->business_id || $payment->business_id !== $gateway->business_id
+            || $payment->payment_gateway_account_id !== $gateway->id || $payment->order_id !== $order->id
+            || !$gateway->payment_profile_id) throw new RuntimeException('Payment gateway does not match the order.');
+        $this->assertUrl($gateway->webhook_url);
+        $redirect = rtrim(config('snippe.portal_url'), '/').'/?order='.rawurlencode($order->uuid).'&payment-return=1';
+        $this->assertUrl($redirect);
+        return $this->request($gateway, 'post', '/api/v1/sessions', [
+            'amount'=>(int) $order->amount, 'currency'=>$order->currency, 'allowed_methods'=>['mobile_money'],
+            'allow_custom_amount'=>false, 'profile_id'=>$gateway->payment_profile_id,
+            'customer'=>['phone'=>$order->customer_phone], 'redirect_url'=>$redirect, 'webhook_url'=>$gateway->webhook_url,
+            'description'=>'WiFi order '.$order->order_number,
+            'metadata'=>['business_uuid'=>$gateway->business->uuid, 'order_uuid'=>$order->uuid, 'payment_uuid'=>$payment->uuid, 'system'=>'wifi'],
+        ], $payment->idempotency_key);
+    }
+    public function getSession(PaymentGatewayAccount $gateway, string $reference): array
+    {
+        return $this->request($gateway, 'get', '/api/v1/sessions/'.rawurlencode($reference));
+    }
+    public function getPayment(PaymentGatewayAccount $gateway, string $reference): array
+    {
+        return $this->request($gateway, 'get', '/v1/payments/'.rawurlencode($reference));
+    }
+    public function pushPayment(PaymentGatewayAccount $gateway, string $reference): array
+    {
+        return $this->request($gateway, 'post', '/v1/payments/'.rawurlencode($reference).'/push');
+    }
+    private function request(PaymentGatewayAccount $gateway, string $method, string $path, array $payload = [], ?string $key = null): array
+    {
+        $this->assertConfigured($gateway);
+        // Never throw an HTTP exception containing provider response bodies or credential-bearing requests.
+        try {
+            $request = Http::acceptJson()->withToken($gateway->api_key_encrypted)->withoutRedirecting()->timeout(config('snippe.timeout'));
+            if ($key) $request = $request->withHeaders(['Idempotency-Key'=>$key]);
+            $response = $request->$method(rtrim($gateway->base_url, '/').$path, $payload);
+            if (!$response->successful() || !is_array($response->json())) throw new RuntimeException('Provider request failed.');
+            return $response->json();
+        } catch (\Throwable $e) { throw new RuntimeException('Payment provider is temporarily unavailable.'); }
+    }
+    public function verifyWebhook(PaymentGatewayAccount $gateway, string $rawBody, ?string $timestamp, ?string $signature): array
+    {
+        if ($gateway->provider !== 'snippe' || !$gateway->active || !$gateway->webhook_secret_configured
+            || !$timestamp || !ctype_digit($timestamp) || abs(time() - (int) $timestamp) > 300
+            || !$signature || !preg_match('/^[a-f0-9]{64}$/', $signature)) throw new RuntimeException('Invalid webhook signature.');
+        $expected = hash_hmac('sha256', $timestamp.'.'.$rawBody, $gateway->webhook_secret_encrypted);
+        if (!hash_equals($expected, $signature)) throw new RuntimeException('Invalid webhook signature.');
+        $event = json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($event)) throw new RuntimeException('Invalid event.');
+        return $event;
     }
 }

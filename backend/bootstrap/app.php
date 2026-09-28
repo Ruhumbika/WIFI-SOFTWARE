@@ -19,5 +19,5 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->dontFlash(['pin', 'recovery_pin', 'secret', 'password', 'password_confirmation', 'current_password']);
+        $exceptions->dontFlash(['pin', 'recovery_pin', 'secret', 'password', 'password_confirmation', 'current_password', 'api_key', 'webhook_secret', 'api_key_encrypted', 'webhook_secret_encrypted']);
     })->create();

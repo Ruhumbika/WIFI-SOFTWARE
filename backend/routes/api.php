@@ -35,10 +35,17 @@ Route::prefix('public/vouchers')->controller(\App\Http\Controllers\PublicVoucher
     Route::post('/{voucher:uuid}/report-compromised','compromise')->middleware('throttle:voucher-compromise');
 });
 
-Route::post('/webhooks/snippe', SnippeWebhookController::class);
+Route::post('/webhooks/snippe/{gateway:uuid}', SnippeWebhookController::class);
+Route::post('/webhooks/snippe', [SnippeWebhookController::class, 'legacy']);
 Route::post('/webhooks/clickpesa', ClickPesaWebhookController::class);
 
 Route::middleware('admin.token')->prefix('admin')->group(function () {
+    Route::get('/businesses', [\App\Http\Controllers\BusinessController::class, 'index']);
+    Route::post('/businesses', [\App\Http\Controllers\BusinessController::class, 'store']);
+    Route::get('/businesses/{business:uuid}', [\App\Http\Controllers\BusinessController::class, 'show']);
+    Route::put('/businesses/{business:uuid}', [\App\Http\Controllers\BusinessController::class, 'update']);
+    Route::post('/businesses/{business:uuid}/gateways', [\App\Http\Controllers\BusinessController::class, 'storeGateway']);
+    Route::put('/businesses/{business:uuid}/gateways/{gateway:uuid}', [\App\Http\Controllers\BusinessController::class, 'updateGateway'])->withoutScopedBindings();
     Route::get('/router/advanced/permission', [AdvancedAccessController::class, 'permission']);
     Route::get('/router/advanced/access', [AdvancedAccessController::class, 'access'])->middleware('throttle:20,1');
     Route::post('/router/advanced/events', [AdvancedAccessController::class, 'event'])->middleware('throttle:30,1');

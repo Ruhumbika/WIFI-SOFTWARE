@@ -18,9 +18,7 @@ class ResendPaymentPushTest extends TestCase
 
     private function pendingPayment(): array
     {
-        config()->set('snippe.mode', 'live');
-        config()->set('snippe.api_key', 'test-only');
-        config()->set('snippe.base_url', 'https://snippe.test');
+        config()->set('snippe.allowed_api_hosts', ['snippe.test']);
         $plan = Plan::create([
             'uuid' => (string) Str::uuid(), 'name' => 'One hour', 'code' => 'HOUR',
             'price' => 500, 'currency' => 'TZS', 'duration_seconds' => 3600,
@@ -31,7 +29,8 @@ class ResendPaymentPushTest extends TestCase
             'plan_id' => $plan->id, 'customer_phone' => '255700000001',
             'amount' => 500, 'currency' => 'TZS', 'status' => 'pending_payment',
         ]);
-        $payment = Payment::create([
+        $gateway = \App\Models\PaymentGatewayAccount::create(['uuid'=>(string) Str::uuid(), 'business_id'=>$order->business_id, 'provider'=>'snippe', 'api_key_encrypted'=>'test-only', 'webhook_secret_encrypted'=>'test-signing', 'base_url'=>'https://snippe.test', 'webhook_url'=>'https://portal.test/webhook', 'active'=>true]);
+        $payment = Payment::create(['payment_gateway_account_id'=>$gateway->id,
             'uuid' => (string) Str::uuid(), 'order_id' => $order->id, 'provider' => 'snippe',
             'reference' => 'payment-reference', 'status' => 'pending', 'amount' => 500,
             'currency' => 'TZS', 'idempotency_key' => 'test-push-1',
