@@ -40,26 +40,13 @@ class SnippeClient
     public function submitCheckout(string $url, string $phone): array
     {
         $url = $this->checkoutUrl($url);
-        // Public checkout receives no merchant credentials; only one validated locale redirect is allowed.
+        preg_match('~^/checkout/([A-Za-z0-9_-]+)$~D', parse_url($url, PHP_URL_PATH), $matches);
+        // Keep the public payment destination fixed and separate from merchant-authenticated requests.
+        $endpoint = 'https://api.snippe.sh/checkout/'.$matches[1].'/pay';
         try {
             $body = ['payment_method'=>'mobile_money', 'customer_phone'=>$phone];
             $request = Http::acceptJson()->asJson()->withoutRedirecting()->timeout(config('snippe.timeout'));
-            $response = $request->post($url.'/pay', $body);
-            if (in_array($response->status(), [307, 308], true)) {
-                $location = $response->header('Location');
-                $token = basename(parse_url($url, PHP_URL_PATH));
-                // Match the complete destination, rejecting credentials, ports, queries and token changes.
-                $paths = ['/en/checkout/'.$token.'/pay', '/sw/checkout/'.$token.'/pay'];
-                $target = null;
-                foreach ($paths as $path) {
-                    if ($location === $path || $location === ltrim($path, '/') || $location === 'https://snippe.me'.$path) {
-                        $target = 'https://snippe.me'.$path;
-                        break;
-                    }
-                }
-                if ($target === null) return ['state'=>'failed'];
-                $response = $request->post($target, $body);
-            }
+            $response = $request->post($endpoint, $body);
             if (!$response->successful()) return ['state'=>'failed'];
             $data = $response->json('data');
             if (!is_array($data) || !is_string($data['attempt_id'] ?? null) || trim($data['attempt_id']) === ''
