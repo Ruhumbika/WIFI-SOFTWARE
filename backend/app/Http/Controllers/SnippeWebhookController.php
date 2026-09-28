@@ -30,13 +30,23 @@ class SnippeWebhookController extends Controller
         $session = data_get($event,'data.session_reference');
         abort_unless(is_string($reference) && $reference !== '' && strlen($reference) <= 255
             && is_string($type) && in_array($type,['payment.completed','payment.failed','payment.expired','payment.voided'],true)
-            && ($session === null || is_string($session)), 422, 'Malformed webhook.');
+            && ($session === null || (is_string($session) && trim($session) !== '' && strlen($session) <= 255)), 422, 'Malformed webhook.');
         // Sessions documentation omits event IDs; the signed payment reference + type is a stable fallback.
         abort_if(isset($event['id']) && (!is_string($event['id']) || strlen($event['id']) > 255),422,'Invalid event ID.');
         $eventId = 'snippe:'.hash('sha256', $gateway->uuid.'|'.($event['id'] ?? ($type.'|'.$reference.'|'.$session)));
         $result = DB::transaction(function () use ($gateway,$event,$eventId,$reference,$session,$type) {
             $query = Payment::where('provider','snippe')->where('payment_gateway_account_id',$gateway->id);
-            $payment = ($session ? $query->where('session_reference',$session) : $query->whereNull('session_reference')->where('reference',$reference))->first();
+            $paymentUuid = data_get($event,'data.metadata.payment_uuid');
+            if ($session !== null) {
+                $payment = $query->where('session_reference',$session)->first();
+            } else {
+                // Signed metadata identifies hosted attempts whose provider reference is not stored yet.
+                abort_if($paymentUuid !== null && (!is_string($paymentUuid) || !\Illuminate\Support\Str::isUuid($paymentUuid)),422,'Invalid payment metadata.');
+                $payment = $paymentUuid !== null
+                    ? (clone $query)->whereNotNull('session_reference')->where('uuid',$paymentUuid)->first()
+                    : null;
+                if (!$payment) $payment = $query->whereNull('session_reference')->where('reference',$reference)->first();
+            }
             abort_unless($payment, 503, 'Payment reference is not ready.');
             $order = Order::lockForUpdate()->findOrFail($payment->order_id);
             $payment = Payment::lockForUpdate()->findOrFail($payment->id);
@@ -59,7 +69,7 @@ class SnippeWebhookController extends Controller
                     $order->forceFill(['status'=>'paid','paid_at'=>now()])->save();
                     ProvisionPaidOrder::dispatch($order->id)->afterCommit();
                 }
-            } elseif (!$session) {
+            } elseif (!$payment->session_reference) {
                 $payment->forceFill(['status'=>substr($type,8)])->save();
             }
             // A failed hosted-checkout attempt does not expire its reusable session.

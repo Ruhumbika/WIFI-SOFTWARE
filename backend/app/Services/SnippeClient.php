@@ -52,8 +52,7 @@ class SnippeClient
             if (!is_array($data) || !is_string($data['attempt_id'] ?? null) || trim($data['attempt_id']) === ''
                 || !is_string($data['status'] ?? null)) return ['state'=>'unknown'];
             $attempt = array_intersect_key($data, array_flip(['attempt_id','status','payment_token','expires_at']));
-            $attempt['state'] = $data['status'] === 'pending' && is_string($data['payment_token'] ?? null)
-                && trim($data['payment_token']) !== '' ? 'initiated' : 'unknown';
+            $attempt['state'] = $data['status'] === 'pending' ? 'initiated' : 'unknown';
             return $attempt;
         } catch (\Throwable $e) {
             return ['state'=>'unknown'];

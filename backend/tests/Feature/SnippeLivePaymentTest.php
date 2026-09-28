@@ -196,7 +196,7 @@ class SnippeLivePaymentTest extends TestCase
                     $this->assertSame('submitting',$p->provider_payload['checkout_submission']['state']);
                     if ($mode==='timeout') throw new \Illuminate\Http\Client\ConnectionException('private network detail');
                     if ($mode==='failed') return Http::response(['message'=>'private provider error'],422);
-                    return Http::response(['data'=>['attempt_id'=>'attempt_unknown','status'=>'pending']]);
+                    return Http::response(['data'=>['status'=>'pending']]);
                 }
                 return Http::response($this->sessionResponse('PAY-'.$mode));
             });
@@ -269,9 +269,6 @@ class SnippeLivePaymentTest extends TestCase
             ['attempt_id'=>'  ','status'=>'pending','payment_token'=>'token'],
             ['attempt_id'=>123,'status'=>'pending','payment_token'=>'token'],
             ['attempt_id'=>'attempt','status'=>null,'payment_token'=>'token'],
-            ['attempt_id'=>'attempt','status'=>'pending'],
-            ['attempt_id'=>'attempt','status'=>'pending','payment_token'=>'  '],
-            ['attempt_id'=>'attempt','status'=>'pending','payment_token'=>123],
             ['attempt_id'=>'attempt','status'=>'completed','payment_token'=>'token']
         ] as $data) {
             Http::swap(new \Illuminate\Http\Client\Factory()); Http::preventStrayRequests();
@@ -306,6 +303,117 @@ class SnippeLivePaymentTest extends TestCase
             $result=app(\App\Services\SnippeClient::class)->submitCheckout('https://snippe.me/checkout/testToken123','255712345678');
             $this->assertSame(['state'=>'unknown'],$result); $this->assertSame(1,$calls);
         }
+    }
+
+    public function test_pending_attempt_without_token_stays_on_portal_and_is_not_resubmitted(): void {
+        $this->gateway(); $o=$this->order(); $submissions=0; $marker=null;
+        Http::fake(function ($r) use ($o,&$submissions,&$marker) {
+            if (str_ends_with($r->url(),'/pay')) {
+                $submissions++;
+                $marker=$o->payments()->firstOrFail()->provider_payload['checkout_submission']['state'];
+                return Http::response(['data'=>['attempt_id'=>'attempt_no_token','status'=>'pending']],201);
+            }
+            return Http::response($this->sessionResponse());
+        });
+        for ($i=0;$i<2;$i++) $this->postJson('/api/public/orders/'.$o->uuid.'/pay',[],$this->headers($o))
+            ->assertOk()->assertJsonPath('order.checkout_state','pin_required');
+        $p=$o->payments()->firstOrFail();
+        $this->assertSame('submitting',$marker);
+        $this->assertSame(['attempt_id'=>'attempt_no_token','status'=>'pending','state'=>'initiated'],$p->provider_payload['checkout_submission']);
+        $this->assertSame(1,$submissions); $this->assertSame(1,$o->payments()->count());
+        $this->assertSame('pending',$p->status); $this->assertNull($o->fresh()->paid_at);
+        Bus::assertNotDispatched(ProvisionPaidOrder::class);
+    }
+
+    public function test_hosted_webhook_without_session_completes_once_via_signed_metadata(): void {
+        $g=$this->gateway(); $o=$this->order(); $p=$this->start($o);
+        $event=$this->event($p); unset($event['data']['session_reference']);
+        $this->webhook($g,$event)->assertOk()->assertJsonPath('duplicate',false);
+        $this->webhook($g,$event)->assertOk()->assertJsonPath('duplicate',true);
+        unset($event['id']);
+        $this->webhook($g,$event)->assertOk();
+        $this->webhook($g,$event)->assertOk()->assertJsonPath('duplicate',true);
+        $this->assertSame('completed',$p->fresh()->status);
+        $this->assertSame('pi_test',$p->fresh()->reference);
+        $this->assertSame('sess_test',$p->fresh()->session_reference);
+        $this->assertSame('paid',$o->fresh()->status); $this->assertNotNull($o->fresh()->paid_at);
+        $this->assertSame(2,$p->events()->count());
+        Bus::assertDispatchedTimes(ProvisionPaidOrder::class,1);
+    }
+
+    public function test_metadata_lookup_requires_signature_and_same_gateway(): void {
+        $g=$this->gateway(); $o=$this->order(); $p=$this->start($o);
+        $b=Business::create(['uuid'=>(string)Str::uuid(),'name'=>'Other','code'=>'OTHER','status'=>'active']);
+        $other=$this->gateway($b);
+        $event=$this->event($p); unset($event['data']['session_reference']);
+        $this->webhook($g,$event,null,'invalid')->assertStatus(400);
+        $this->webhook($g,$event,time()-301)->assertStatus(400);
+        $this->webhook($other,$event)->assertStatus(503);
+        $sameBusinessGateway=$this->gateway($g->business);
+        $this->webhook($sameBusinessGateway,$event)->assertStatus(503);
+        $event['data']['metadata']['payment_uuid']=(string)Str::uuid();
+        $this->webhook($g,$event)->assertStatus(503);
+        $event['data']['metadata']['payment_uuid']=[];
+        $this->webhook($g,$event)->assertStatus(422);
+        unset($event['data']['metadata']);
+        $event['data']['customer']['phone']=$o->customer_phone;
+        $this->webhook($g,$event)->assertStatus(503);
+        $this->assertSame('pending',$p->fresh()->status); $this->assertNull($o->fresh()->paid_at);
+        $this->assertSame(0,$p->events()->count()); Bus::assertNotDispatched(ProvisionPaidOrder::class);
+    }
+
+    public function test_metadata_hosted_lookup_validates_payment_details_before_writes(): void {
+        $g=$this->gateway(); $o=$this->order(); $p=$this->start($o);
+        $event=$this->event($p); unset($event['data']['session_reference']);
+        foreach (['amount.value'=>501,'amount.currency'=>'USD','status'=>'pending',
+            'metadata.order_uuid'=>(string)Str::uuid(),'metadata.business_uuid'=>(string)Str::uuid(),
+            'metadata.system'=>'other'] as $field=>$value) {
+            $bad=$event; data_set($bad,'data.'.$field,$value);
+            $this->webhook($g,$bad)->assertStatus(422);
+        }
+        Http::swap(new \Illuminate\Http\Client\Factory()); Http::preventStrayRequests();
+        $otherOrder=$this->order(); $otherPayment=$this->start($otherOrder,'sess_other');
+        $bad=$event; $bad['data']['metadata']['payment_uuid']=$otherPayment->uuid;
+        $this->webhook($g,$bad)->assertStatus(422);
+        $this->assertSame('pending',$otherPayment->fresh()->status);
+        $b=Business::create(['uuid'=>(string)Str::uuid(),'name'=>'Mismatch','code'=>'MISMATCH','status'=>'active']);
+        $p->update(['business_id'=>$b->id]);
+        $this->webhook($g,$event)->assertStatus(422);
+        $p->update(['business_id'=>$g->business_id]); $o->update(['business_id'=>$b->id]);
+        $this->webhook($g,$event)->assertStatus(422);
+        $this->assertSame('pending',$p->fresh()->status); $this->assertNull($o->fresh()->paid_at);
+        $this->assertSame(0,$p->events()->count()); Bus::assertNotDispatched(ProvisionPaidOrder::class);
+    }
+
+    public function test_failed_hosted_attempts_without_session_keep_local_session_reusable(): void {
+        $g=$this->gateway(); $o=$this->order(); $p=$this->start($o);
+        foreach (['failed','expired','voided'] as $status) {
+            $event=$this->event($p); unset($event['data']['session_reference']);
+            $event['id']='evt_'.$status; $event['type']='payment.'.$status; $event['data']['status']=$status;
+            $this->webhook($g,$event)->assertOk();
+            $this->webhook($g,$event)->assertOk()->assertJsonPath('duplicate',true);
+            $this->assertSame('pending',$p->fresh()->status);
+            $this->assertSame('sess_test',$p->fresh()->session_reference);
+        }
+        $this->postJson('/api/public/orders/'.$o->uuid.'/pay',[],$this->headers($o))->assertOk();
+        Http::assertSentCount(3); $this->assertSame(1,$o->payments()->count());
+        $this->assertSame(3,$p->events()->count()); $this->assertNull($o->fresh()->paid_at);
+        Bus::assertNotDispatched(ProvisionPaidOrder::class);
+    }
+
+    public function test_legacy_non_session_failures_still_finalize_by_reference(): void {
+        $g=$this->gateway(); $o=$this->order();
+        foreach (['failed','expired','voided'] as $status) {
+            $p=Payment::create(['uuid'=>(string)Str::uuid(),'order_id'=>$o->id,'business_id'=>$o->business_id,
+                'payment_gateway_account_id'=>$g->id,'provider'=>'snippe','reference'=>'legacy_'.$status,
+                'status'=>'pending','amount'=>500,'currency'=>'TZS','idempotency_key'=>'legacy_'.$status]);
+            $event=$this->event($p); unset($event['data']['session_reference']);
+            $event['id']='evt_legacy_'.$status; $event['type']='payment.'.$status;
+            $event['data']['status']=$status; $event['data']['reference']=$p->reference;
+            $this->webhook($g,$event)->assertOk();
+            $this->assertSame($status,$p->fresh()->status);
+        }
+        $this->assertNull($o->fresh()->paid_at); Bus::assertNotDispatched(ProvisionPaidOrder::class);
     }
 
 }
