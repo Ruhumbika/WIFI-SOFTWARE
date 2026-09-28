@@ -1,0 +1,7 @@
+
+# Refact generated/runtime files
+.refact/buddy/briefings/
+.refact/buddy/memory_ops.jsonl
+.refact/buddy/runtime_queue.jsonl
+.refact/buddy/state.json
+.refact/knowledge/
