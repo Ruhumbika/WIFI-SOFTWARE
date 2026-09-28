@@ -250,6 +250,10 @@ async function continuePayment() {
   loading.value = true;
   error.value = "";
   try {
+    if (order.value?.checkout_state === 'pin_required') {
+      startPoll();
+      return;
+    }
     if (order.value?.payment?.checkout_url) {
       const checkout = new URL(order.value.payment.checkout_url);
       if (checkout.protocol !== 'https:' || checkout.hostname !== 'snippe.me' || checkout.username || checkout.password

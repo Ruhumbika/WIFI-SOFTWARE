@@ -245,4 +245,58 @@ class SnippeLivePaymentTest extends TestCase
         Bus::assertDispatchedTimes(ProvisionPaidOrder::class,1);
     }
 
+    public function test_localized_redirect_initiates_once_and_keeps_portal_pin_state(): void {
+        $this->gateway();
+        foreach ([['en',307],['sw',308]] as [$locale,$code]) {
+            Http::swap(new \Illuminate\Http\Client\Factory()); Http::preventStrayRequests();
+            $o=$this->order(); $requests=[];
+            Http::fake(function ($r) use ($locale,$code,&$requests) {
+                $requests[]=$r;
+                if ($r->url()==='https://snippe.me/checkout/test/pay') return Http::response([], $code, ['Location'=>'/'.$locale.'/checkout/test/pay']);
+                if ($r->url()==='https://snippe.me/'.$locale.'/checkout/test/pay') return Http::response(['data'=>[
+                    'attempt_id'=>'attempt_locale','status'=>'pending','payment_token'=>'private_locale','expires_at'=>now()->addMinutes(5)->toIso8601String()]]);
+                return Http::response($this->sessionResponse('PAY-'.$locale));
+            });
+            for ($i=0;$i<2;$i++) $this->postJson('/api/public/orders/'.$o->uuid.'/pay',[],$this->headers($o))
+                ->assertOk()->assertJsonPath('order.checkout_state','pin_required')->assertDontSee('private_locale');
+            $posts=array_values(array_filter($requests,fn($r)=>str_ends_with($r->url(),'/pay')));
+            $this->assertCount(2,$posts);
+            $this->assertSame('POST',$posts[0]->method()); $this->assertSame('POST',$posts[1]->method());
+            $this->assertSame($posts[0]->body(),$posts[1]->body());
+            $this->assertSame(['payment_method'=>'mobile_money','customer_phone'=>'255712345678'],$posts[1]->data());
+            $this->assertFalse($posts[1]->hasHeader('Authorization'));
+            $this->assertSame(1,$o->payments()->count()); $this->assertNull($o->fresh()->paid_at);
+        }
+        Bus::assertNotDispatched(ProvisionPaidOrder::class);
+    }
+
+    public function test_unsafe_redirects_and_non_preserving_codes_are_not_followed(): void {
+        foreach ([
+            [307,'https://evil.test/en/checkout/test/pay'],[307,'//evil.test/en/checkout/test/pay'],
+            [307,'/en/checkout/changed/pay'],[307,'/en/checkout/test/pay?x=1'],[307,'/en/checkout/test/pay#x'],
+            [307,'https://user@snippe.me/en/checkout/test/pay'],[307,'https://snippe.me:443/en/checkout/test/pay'],
+            [307,'http://snippe.me/en/checkout/test/pay'],[307,'/fr/checkout/test/pay'],[307,''],
+            [301,'/en/checkout/test/pay'],[302,'/en/checkout/test/pay'],[303,'/en/checkout/test/pay']
+        ] as [$code,$location]) {
+            Http::swap(new \Illuminate\Http\Client\Factory()); Http::preventStrayRequests();
+            Http::fake(['*'=>Http::response([], $code, ['Location'=>$location])]);
+            $result=app(\App\Services\SnippeClient::class)->submitCheckout('https://snippe.me/checkout/test','255712345678');
+            $this->assertSame('failed',$result['state']); Http::assertSentCount(1);
+        }
+    }
+
+    public function test_localized_timeout_and_second_redirect_never_retry(): void {
+        foreach (['timeout','redirect'] as $mode) {
+            Http::swap(new \Illuminate\Http\Client\Factory()); Http::preventStrayRequests(); $calls=0;
+            Http::fake(function ($r) use ($mode,&$calls) {
+                $calls++;
+                if ($calls===1) return Http::response([],307,['Location'=>'https://snippe.me/en/checkout/test/pay']);
+                if ($mode==='timeout') throw new \Illuminate\Http\Client\ConnectionException('timeout');
+                return Http::response([],308,['Location'=>'/sw/checkout/test/pay']);
+            });
+            $result=app(\App\Services\SnippeClient::class)->submitCheckout('https://snippe.me/checkout/test','255712345678');
+            $this->assertSame($mode==='timeout'?'unknown':'failed',$result['state']); $this->assertSame(2,$calls);
+        }
+    }
+
 }
