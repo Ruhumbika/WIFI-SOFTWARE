@@ -79,6 +79,7 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
 
 <template>
   <AdminShell>
+    <div class="voucher-detail-page">
     <button class="btn btn-link ps-0" @click="router.push('/admin/vouchers')">← All vouchers</button>
     <h1 class="h2">Voucher details</h1>
     <p v-if="loading" role="status">Loading voucher…</p>
@@ -86,7 +87,7 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
     <div v-if="notice" class="alert alert-info" role="status">{{ notice }}</div>
     <template v-if="voucher">
       <div class="row g-3">
-        <div class="col-lg-5"><VoucherCard :voucher="{ ...voucher, status: displayStatus }" :plan="voucher.plan" :now-ms="nowTick" /></div>
+        <div class="col-lg-5"><VoucherCard admin compact :voucher="{ ...voucher, status: displayStatus }" :plan="voucher.plan" :now-ms="nowTick" /></div>
         <div class="col-lg-7">
           <section class="card p-3 mb-3">
             <h2 class="h5">Customer and payment</h2>
@@ -108,8 +109,8 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
             <p><strong>Voucher last synced:</strong> {{ formatDate(voucher.last_synced_at, 'Not yet') }}</p>
             <p class="mb-0"><strong>Sessions:</strong> {{ voucher.sessions?.length || 0 }} recent</p>
           </section>
-          <section class="card p-3 mb-3">
-            <h2 class="h5">Activity</h2>
+          <details class="card p-3 mb-3">
+            <summary class="fw-semibold">Activity</summary>
             <ul class="mb-0">
               <li v-if="voucher.order?.payments?.[0]?.created_at">Payment initiated · {{ formatDate(voucher.order.payments[0].created_at) }}</li>
               <li v-if="voucher.order?.payments?.[0]?.completed_at">Payment confirmed · {{ formatDate(voucher.order.payments[0].completed_at) }}</li>
@@ -119,9 +120,9 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
               <li v-if="voucher.device_mac && voucher.activated_at">Device bound · {{ formatDate(voucher.activated_at) }}</li>
               <li v-for="session in voucher.sessions || []" :key="session.id">Session started · {{ formatDate(session.started_at) }}</li>
             </ul>
-          </section>
-          <section class="card p-3 mb-3">
-            <h2 class="h5">Device recovery and security</h2>
+          </details>
+          <details class="card p-3 mb-3">
+            <summary class="fw-semibold">Device recovery and security</summary>
             <p>Transfers: {{ voucher.transfer_count || 0 }}</p>
             <p v-if="voucher.compromised_at" class="alert alert-warning">Owner reported compromised credentials {{ formatDate(voucher.compromised_at) }}.</p>
             <div v-if="recoveryPin" class="alert alert-warning"><strong>Recovery PIN: {{ recoveryPin }}</strong><p>Hand this to the owner now. It will not be shown again.</p><button class="btn btn-outline-dark" @click="recoveryPin=''">Handed over</button></div>
@@ -140,7 +141,7 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
               <button class="btn btn-outline-dark" :disabled="busy" @click="action(op.action === 'rotate' ? 'rotate-credentials' : (op.transfer_request_id ? 'transfer/approve' : 'release-device'), op.request_key)">Retry operation</button>
             </div>
             <details class="mt-3"><summary>Recent security events</summary><p v-if="!security.events.length">No events recorded.</p><ul><li v-for="event in security.events" :key="event.id">{{ event.event_type.replaceAll('_',' ') }} · {{ formatDate(event.occurred_at) }}<span v-if="event.attempted_mac"> · {{ event.attempted_mac }}</span></li></ul></details>
-          </section>
+          </details>
           <div class="d-flex flex-wrap gap-2">
             <button v-if="voucher.status === 'provision_pending'" class="btn btn-primary" :disabled="busy" @click="retry">Retry provisioning</button>
             <button v-if="canPrint" class="btn btn-outline-danger" :disabled="busy" @click="disable">Disable voucher</button>
@@ -156,5 +157,18 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
         <PrintableVoucherTicket :ticket="voucher" :compact="printTemplate === 'cards'" :thermal="printTemplate === 'thermal'" />
       </section></Teleport>
     </template>
+    </div>
   </AdminShell>
 </template>
+
+<style scoped>
+.voucher-detail-page .card { padding:12px !important; border:1px solid #d5e2eb; border-radius:10px; background:#fff; box-shadow:none; }
+.voucher-detail-page h1 { font-size:24px; margin-bottom:12px; color:#196b97; }
+.voucher-detail-page h2 { font-size:15px; color:#196b97; margin-bottom:10px; }
+.voucher-detail-page section p { display:flex; justify-content:space-between; gap:12px; margin:0; padding:6px 0; border-bottom:1px solid #eaf0f5; font-size:13px; flex-wrap:wrap; }
+.voucher-detail-page section p:last-child { border:0; }
+.voucher-detail-page section p strong { color:#64748b; font-weight:600; }
+.voucher-detail-page details > summary { font-size:13px; cursor:pointer; color:#196b97; }
+.voucher-detail-page .btn,.voucher-detail-page .form-select { font-size:12px; min-height:34px; border-radius:5px; }
+.voucher-detail-page details[open] > summary { margin-bottom:12px; }
+</style>

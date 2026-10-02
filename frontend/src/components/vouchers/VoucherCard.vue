@@ -31,6 +31,7 @@ const props = withDefaults(
     connectLabel?: string;
     connecting?: boolean;
     compact?: boolean;
+    admin?: boolean;
     nowMs?: number;
   }>(),
   {
@@ -169,7 +170,7 @@ onUnmounted(() => window.clearTimeout(copyResetTimer));
 <template>
   <article
     class="voucher-ticket"
-    :class="{ 'voucher-ticket--compact': compact }"
+    :class="{ 'voucher-ticket--compact': compact, 'voucher-ticket--admin': admin }"
   >
     <div class="voucher-ticket__head">
       <div>
@@ -633,4 +634,15 @@ onUnmounted(() => window.clearTimeout(copyResetTimer));
   min-height: 44px;
   padding-top: 4px;
 }
+</style>
+
+<style scoped>
+.voucher-ticket--admin { border:1px solid #9dd4f2; border-top:4px solid #196b97; border-radius:10px; background:#fff; box-shadow:none; }
+.voucher-ticket--admin :deep(button) { color:#196b97; }
+.voucher-ticket--admin .voucher-ticket__head { padding:14px 14px 8px; }
+.voucher-ticket--admin .voucher-ticket__eyebrow { color:#196b97; }
+.voucher-ticket--admin .voucher-ticket__summary { padding:0 14px 12px; }
+.voucher-ticket--admin .voucher-ticket__summary > strong { font-size:26px; }
+.voucher-ticket--admin .voucher-ticket__facts { gap:5px; }
+.voucher-ticket--admin .voucher-ticket__facts > span { background:#eaf0f5; border-color:#9dd4f2; font-size:12px; }
 </style>

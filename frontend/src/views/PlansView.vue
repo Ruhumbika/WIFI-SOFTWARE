@@ -38,10 +38,13 @@ function emptyForm(): PlanForm {
 }
 
 const plans = ref<Plan[]>([])
+const search = ref('')
+const filteredPlans = computed(() => plans.value.filter(plan => `${plan.name} ${plan.code} ${plan.mikrotik_profile_name}`.toLowerCase().includes(search.value.toLowerCase())))
 const form = ref<PlanForm>(emptyForm())
 const loading = ref(true)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
+const showForm = ref(false)
 const error = ref('')
 const notice = ref('')
 const fieldErrors = ref<Record<string, string[]>>({})
@@ -50,6 +53,7 @@ const editingPlan = computed(() => plans.value.find(plan => plan.id === editingI
 const hasHistory = computed(() => Boolean(editingPlan.value?.vouchers_exists || editingPlan.value?.orders_exists))
 
 function startEdit(plan: Plan) {
+  showForm.value = true
   editingId.value = plan.id
   form.value = { name: plan.name, code: plan.code, price: plan.price, original_price: plan.original_price ?? null, duration_hours: plan.duration_seconds / 3600, rate_limit: plan.rate_limit, active: plan.active, recommended: plan.recommended, kind: plan.data_limit_bytes ? 'data' : 'time', data_limit_mb: plan.data_limit_bytes ? plan.data_limit_bytes / 1048576 : null }
   error.value = ''
@@ -58,9 +62,19 @@ function startEdit(plan: Plan) {
 }
 
 function cancelEdit() {
+  showForm.value = false
   editingId.value = null
   form.value = emptyForm()
   fieldErrors.value = {}
+}
+
+function openCreate() {
+  editingId.value = null
+  form.value = emptyForm()
+  error.value = ''
+  notice.value = ''
+  fieldErrors.value = {}
+  showForm.value = true
 }
 
 function planPayload(plan: Plan, active: boolean) {
@@ -142,28 +156,28 @@ onMounted(load)
         <h1 class="h2 mb-1">Packages</h1>
         <p class="text-secondary mb-0">Manage customer internet packages. RouterOS profiles are created during voucher provisioning or router bootstrap.</p>
       </div>
-      <router-link class="btn btn-outline-primary" to="/admin/router"><i class="bi bi-router me-1"></i>Router status</router-link>
     </div>
     <div v-if="error" class="alert alert-danger" role="alert">{{ error }}</div>
     <div v-if="notice" class="alert alert-success" role="status">{{ notice }}</div>
     <div class="row g-3">
-      <div class="col-12 col-xl-7">
-        <section class="card p-3">
+      <div class="col-12" :class="showForm ? 'col-xl-7' : ''">
+        <section class="admin-list-panel">
           <div class="d-flex justify-content-between align-items-center mb-3"><h2 class="h5 mb-0">Current packages</h2><span class="badge text-bg-secondary">{{ activeCount }} active</span></div>
+          <div class="admin-list-toolbar"><div class="admin-list-search"><input v-model="search" class="form-control" placeholder="Search packages…" aria-label="Search packages"><button type="button" aria-label="Search"><i class="bi bi-search"></i></button></div><div class="admin-list-actions"><button class="btn" @click="openCreate"><i class="bi bi-plus-lg me-1"></i>New package</button><router-link class="btn" to="/admin/router"><i class="bi bi-router me-1"></i>Router status</router-link><button class="btn" :disabled="loading" @click="load"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button></div></div>
           <p v-if="loading" role="status">Loading packages…</p>
           <p v-else-if="!plans.length" class="text-secondary mb-0">No packages yet.</p>
           <div v-else class="mobile-ledger d-md-none" aria-label="Current packages">
             <div class="mobile-ledger__head"><span>Package</span><span>Price</span><span>Actions</span></div>
-            <div v-for="plan in plans" :key="plan.id" class="mobile-ledger__row">
+            <div v-for="plan in filteredPlans" :key="plan.id" class="mobile-ledger__row">
               <div><strong>{{ plan.name }}</strong><br><small>{{ plan.data_limit_bytes ? `${(plan.data_limit_bytes / 1048576).toLocaleString()} MB · ` : '' }}{{ durationLabel(plan.duration_seconds) }} · {{ speedLabel(plan.rate_limit) }}</small><br><small>Profile: {{ plan.mikrotik_profile_name }}</small><br><span v-if="plan.recommended" class="badge text-bg-warning">Recommended</span> <span class="badge" :class="plan.active ? 'text-bg-success' : 'text-bg-secondary'">{{ plan.active ? 'Active' : 'Inactive' }}</span></div>
               <strong class="price">TZS {{ Number(plan.price).toLocaleString() }}</strong>
               <div><button class="btn btn-sm btn-outline-primary mb-1" :disabled="saving" @click="startEdit(plan)">Edit</button><button class="btn btn-sm" :class="plan.active ? 'btn-outline-danger' : 'btn-outline-success'" :disabled="saving" @click="toggleActive(plan)">{{ plan.active ? 'Deactivate' : 'Reactivate' }}</button></div>
             </div>
           </div>
-          <div v-if="plans.length" class="table-responsive d-none d-md-block">
-            <table class="table align-middle mb-0">
+          <div v-if="plans.length" class="admin-table-shell d-none d-md-block">
+            <table class="admin-data-table">
               <thead><tr><th scope="col">Package</th><th scope="col">Price</th><th scope="col">Duration</th><th scope="col">Speed</th><th scope="col">Profile</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-              <tbody><tr v-for="plan in plans" :key="plan.id">
+              <tbody><tr v-for="plan in filteredPlans" :key="plan.id">
                 <td class="fw-semibold">{{ plan.name }} <span v-if="plan.recommended" class="badge text-bg-warning">Recommended</span></td>
                 <td class="text-nowrap price">TZS {{ Number(plan.price).toLocaleString() }}</td>
                 <td class="text-nowrap">{{ durationLabel(plan.duration_seconds) }}<small v-if="plan.data_limit_bytes" class="d-block text-secondary">{{ (plan.data_limit_bytes / 1048576).toLocaleString() }} MB</small></td>
@@ -176,12 +190,12 @@ onMounted(load)
           </div>
         </section>
       </div>
-      <div class="col-12 col-xl-5">
-        <section class="card p-3">
-          <div class="d-flex justify-content-between align-items-center"><h2 class="h5">{{ editingId === null ? 'New package' : 'Edit package' }}</h2><button v-if="editingId !== null" class="btn btn-sm btn-outline-secondary" type="button" @click="cancelEdit">Cancel</button></div>
+      <div v-if="showForm" class="col-12 col-xl-5">
+        <section class="card package-form-card">
+          <div class="d-flex justify-content-between align-items-center"><h2 class="h5 mb-0">{{ editingId === null ? 'New package' : 'Edit package' }}</h2><button class="btn btn-sm btn-outline-secondary" type="button" @click="cancelEdit"><i class="bi bi-x-lg me-1"></i>Cancel</button></div>
           <p class="text-secondary small">{{ hasHistory ? 'This package has orders or vouchers. Its code, duration and speed are locked.' : 'Set the package customers will see when buying internet access.' }}</p>
           <form @submit.prevent="save">
-            <fieldset class="mb-3" :disabled="hasHistory"><legend class="form-label mb-2">Plan type</legend><div class="d-flex gap-3"><label class="form-check-label"><input v-model="form.kind" class="form-check-input me-1" type="radio" value="time" /> Time</label><label class="form-check-label"><input v-model="form.kind" class="form-check-input me-1" type="radio" value="data" /> Mobile data</label></div></fieldset>
+            <fieldset class="mb-2" :disabled="hasHistory"><legend class="form-label mb-1">Plan type</legend><div class="d-flex gap-3"><label class="form-check-label"><input v-model="form.kind" class="form-check-input me-1" type="radio" value="time" /> Time</label><label class="form-check-label"><input v-model="form.kind" class="form-check-input me-1" type="radio" value="data" /> Mobile data</label></div></fieldset>
             <div class="mb-3"><label class="form-label" for="plan-name">Package name</label><input id="plan-name" v-model="form.name" class="form-control" maxlength="100" required placeholder="e.g. 24 Hours" /><small v-if="fieldErrors.name" class="text-danger">{{ fieldErrors.name[0] }}</small></div>
             <div class="row g-3 mb-3">
               <div class="col-sm-6"><label class="form-label" for="plan-code">Package code</label><input id="plan-code" v-model="form.code" class="form-control" maxlength="30" pattern="[A-Za-z0-9_-]+" :readonly="hasHistory" required placeholder="e.g. DAY" /><small v-if="fieldErrors.code" class="text-danger">{{ fieldErrors.code[0] }}</small></div>
@@ -207,3 +221,14 @@ onMounted(load)
     </div>
   </AdminShell>
 </template>
+
+<style scoped>
+.package-form-card { padding:14px; }
+.package-form-card .form-control { min-height:38px; padding:6px 10px; }
+.package-form-card .form-label { margin-bottom:4px; font-size:13px; font-weight:650; }
+.package-form-card .mb-3 { margin-bottom:10px !important; }
+.package-form-card .row { --bs-gutter-x:10px; --bs-gutter-y:10px; }
+@media (max-width:575px) {
+  .package-form-card { padding:12px; }
+}
+</style>

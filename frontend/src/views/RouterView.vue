@@ -67,7 +67,8 @@ onMounted(testConnection)
 
 <template>
   <AdminShell>
-    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+    <div class="router-page">
+    <div class="router-header d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
       <div><h1 class="h2 mb-1">Router</h1><p class="text-secondary mb-0">{{ loading && !health ? 'Checking router connection…' : health?.connected ? 'HotSpot connection and sessions' : 'Connect your MikroTik to start managing HotSpot access.' }}</p></div>
       <span class="badge fs-6" :class="health?.connected ? 'text-bg-success' : 'text-bg-secondary'">{{ loading ? 'Checking…' : health?.connected ? 'Connected' : 'Not connected' }}</span>
     </div>
@@ -93,7 +94,7 @@ onMounted(testConnection)
       <div class="col-12 col-xl-5">
         <section class="card p-3 h-100" aria-label="Router actions">
           <h2 class="h5">Actions</h2>
-          <div class="d-grid gap-2">
+          <div class="router-actions">
             <button class="btn btn-primary py-2" :disabled="loading || syncing || !health?.connected" @click="sync">{{ syncing ? 'Syncing…' : 'Sync HotSpot sessions' }}</button>
             <button class="btn btn-outline-primary py-2" :disabled="loading || syncing" @click="testConnection">Test connection</button>
             <router-link class="btn btn-outline-secondary py-2" to="/admin/sessions">View active sessions</router-link>
@@ -112,5 +113,24 @@ onMounted(testConnection)
         <div v-for="(check, name) in diagnostics" :key="name" class="d-flex justify-content-between gap-3 border-top py-2"><span>{{ name }}</span><strong>{{ check.message }}</strong></div>
       </div>
     </details>
+    </div>
   </AdminShell>
 </template>
+
+<style scoped>
+.router-page { max-width:1200px; margin:0 auto; }
+.router-header { padding:16px; border:1px solid #d5e2eb; border-radius:10px; background:#fff; }
+.router-header h1 { font-size:22px; color:#196b97; }
+.router-header p { font-size:13px; }
+.router-page > .row .card,.router-page > details { border:1px solid #d5e2eb; border-radius:10px; box-shadow:none; }
+.router-page h2 { font-size:16px; color:#196b97; margin-bottom:16px; }
+.router-page dl { font-size:13px; row-gap:6px; }
+.router-page dt { color:#64748b; font-weight:500; }
+.router-page dd { overflow-wrap:anywhere; font-weight:600; }
+.router-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.router-actions .btn { font-size:12px; min-height:40px; display:flex; align-items:center; justify-content:center; }
+.router-actions .btn:first-child { grid-column:1 / -1; }
+.router-page > details summary { padding:4px 0; color:#196b97; font-size:13px; cursor:pointer; }
+.router-page > details[open] summary { margin-bottom:12px; }
+@media(max-width:575px) { .router-page dt { margin-bottom:0; } .router-page dd { padding-bottom:8px; border-bottom:1px solid #eaf0f5; } }
+</style>

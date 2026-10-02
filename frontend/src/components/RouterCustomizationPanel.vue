@@ -100,7 +100,7 @@ watch(() => props.connected, load)
 </script>
 
 <template>
-  <section class="card p-3 mt-3" aria-label="Customer Wi-Fi and naming">
+  <section class="card p-3 mt-3 router-customization" aria-label="Customer Wi-Fi and naming">
     <h2 class="h5">Customer Wi-Fi and naming</h2>
     <p v-if="loading" role="status">Loading router settings…</p>
     <p v-else-if="forbidden" class="text-secondary">These router settings are unavailable for this account.</p>
@@ -134,3 +134,13 @@ watch(() => props.connected, load)
     </template>
   </section>
 </template>
+
+<style scoped>
+.router-customization { border:1px solid #d5e2eb; border-radius:10px; box-shadow:none; }
+.router-customization h2 { color:#196b97; font-size:16px; margin-bottom:14px; }
+.router-customization h3 { font-size:14px; }
+.router-customization .border-top { border:1px solid #d5e2eb !important; border-radius:8px; background:#fafcfe; padding:14px; }
+.router-customization .form-label { font-size:12px; font-weight:600; color:#475569; }
+.router-customization .form-control,.router-customization .form-select,.router-customization .btn { font-size:13px; min-height:38px; }
+.router-customization p { font-size:13px; }
+</style>

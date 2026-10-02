@@ -81,8 +81,9 @@ class AdminController extends Controller
         return $plan->fresh();
     }
 
-    public function logs()
+    public function logs(Request $request)
     {
+        $search = $request->validate(['search'=>['nullable','string','max:100']])['search'] ?? '';
         $files = glob(storage_path('logs/laravel*.log')) ?: [];
         $files = array_values(array_filter($files, 'is_file'));
         usort($files, fn($a, $b) => filemtime($b) <=> filemtime($a));
@@ -109,6 +110,7 @@ class AdminController extends Controller
             $entries[] = ['time' => $match[1], 'level' => $match[2], 'message' => $event];
         }
 
+        if ($search !== '') $entries = array_values(array_filter($entries, fn ($entry) => str_contains(strtolower(implode(' ', $entry)), strtolower($search))));
         return ['entries' => array_slice($entries, -50)];
     }
 

@@ -275,10 +275,10 @@ watch(() => props.connected, connected => { if (connected) void loadUplink() })
 </script>
 
 <template>
-  <section class="card p-3 mt-3" aria-label="Router setup">
+  <section class="card p-3 mt-3 router-setup" aria-label="Router setup">
     <h2 class="h5">Set up customer Wi-Fi</h2>
-    <p class="text-secondary">Connect the prepared router, add packages, then test the customer page on a phone.</p>
-    <div class="d-flex flex-wrap gap-2 mb-3" aria-label="Setup progress">
+    <p class="text-secondary small">Connect the router, prepare packages, and test customer access.</p>
+    <div class="setup-progress" aria-label="Setup progress">
       <span class="badge" :class="connected ? 'text-bg-success' : 'text-bg-secondary'">1. Router {{ connected ? 'connected' : 'pending' }}</span>
       <span class="badge" :class="activePackages ? 'text-bg-primary' : 'text-bg-secondary'">2. {{ activePackages ? `${activePackages} package(s) created` : 'Add packages' }}</span>
       <span class="badge text-bg-secondary">3. Test on a phone</span>
@@ -411,3 +411,18 @@ watch(() => props.connected, connected => { if (connected) void loadUplink() })
     </details>
   </section>
 </template>
+
+<style scoped>
+.router-setup { border:1px solid #d5e2eb; border-radius:10px; box-shadow:none; }
+.router-setup h2 { color:#196b97; font-size:16px; }
+.router-setup h3 { font-size:14px; }
+.setup-progress { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:8px 0 16px; }
+.setup-progress .badge { white-space:normal; padding:12px 8px; text-align:left; font-size:12px; border-radius:6px; }
+.router-setup .border { border-color:#d5e2eb !important; background:#fafcfe; border-radius:8px !important; }
+.router-setup .form-label { font-size:12px; font-weight:600; color:#475569; }
+.router-setup .form-control,.router-setup .form-select,.router-setup .btn { font-size:13px; min-height:38px; }
+.router-setup summary { cursor:pointer; font-size:13px; color:#196b97; }
+.router-setup details[open] > summary { margin-bottom:14px; }
+.router-setup .alert { font-size:13px; }
+@media(max-width:575px) { .setup-progress { gap:5px; } .setup-progress .badge { font-size:11px; padding:10px 6px; } }
+</style>
