@@ -124,6 +124,9 @@ class RouterSetupController extends Controller
     {
         $data = $request->validate(['portal_url' => ['required', 'url', 'max:255']]);
         $url = rtrim($data['portal_url'], '/');
+        if ($url !== 'https://wifi.95-111-248-145.sslip.io') {
+            throw ValidationException::withMessages(['portal_url' => 'Use the trusted RJAY public portal origin.']);
+        }
         $parts = parse_url($url);
         $host = strtolower($parts['host'] ?? '');
         if (!in_array($parts['scheme'] ?? '', ['http', 'https'], true)

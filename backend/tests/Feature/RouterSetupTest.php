@@ -50,9 +50,10 @@ class RouterSetupTest extends TestCase
         $headers = $this->adminHeaders();
         $this->getJson('/api/admin/router/hotspot-login?portal_url=http%3A%2F%2F127.0.0.1%3A5174', $headers)->assertUnprocessable();
 
-        $response = $this->get('/api/admin/router/hotspot-login?portal_url=http%3A%2F%2F10.10.1.254%3A5174', $headers)->assertOk();
+        $this->getJson('/api/admin/router/hotspot-login?portal_url=https%3A%2F%2Fother.example', $headers)->assertUnprocessable();
+        $response = $this->get('/api/admin/router/hotspot-login?portal_url=https%3A%2F%2Fwifi.95-111-248-145.sslip.io', $headers)->assertOk();
         $this->assertStringContainsString('filename="login.html"', $response->headers->get('Content-Disposition'));
-        $this->assertStringContainsString('http://10.10.1.254:5174/?mac=', $response->getContent());
+        $this->assertStringContainsString('https://wifi.95-111-248-145.sslip.io/?mac=', $response->getContent());
         $this->assertStringNotContainsString('__PORTAL_URL__', $response->getContent());
     }
 

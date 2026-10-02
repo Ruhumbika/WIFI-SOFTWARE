@@ -6,7 +6,7 @@ import { api } from '../../api'
 import { formatPhoneInput } from '../../utils/formatPhoneInput'
 import VoucherCard from '../vouchers/VoucherCard.vue'
 import SignalEye from './SignalEye.vue'
-import { submitHotspotLogin } from '../../utils/hotspotLogin'
+import { submitHotspotLogin, captiveContext, preserveCaptiveContext } from '../../utils/hotspotLogin'
 const props = defineProps<{ mode: 'redeem' | 'recovery'; compact?: boolean }>()
 const emit = defineEmits<{ buy: [] }>()
 const code = ref(''), pin = ref(''), phone = ref(''), recoveryPin = ref('')
@@ -36,7 +36,7 @@ const summaries = ref<any[]>([]), searched = ref(false), busy = ref(false), mess
 const state = ref(''), verified = ref(false), page = ref(1), lastPage = ref(1), filter = ref('all')
 const expiresAt = ref(0)
 const nowTick = ref(Date.now())
-const params = new URLSearchParams(location.search)
+const params = captiveContext()
 const context = { device_mac: params.get('mac') || null, login_url: params.get('link-login-only') || null }
 const headers = () => ({ 'X-Voucher-Recovery-Token': token.value })
 const labels: Record<string,string> = { ready:'Unused', active:'Active', expired:'Expired', disabled:'Unavailable', revoked:'Unavailable', provision_pending:'Preparing' }
@@ -127,7 +127,7 @@ function finishLogin(data: any) {
     applyState(data.state)
     if (['ready','active'].includes(data.state)) {
       if (data.login_url) {
-        const url = new URL(location.href); url.searchParams.delete('order'); url.searchParams.set('voucher-return','1')
+        const url = preserveCaptiveContext(new URL(location.href), params); url.searchParams.delete('order'); url.searchParams.set('voucher-return','1')
         submitHotspotLogin(data.login_url,voucher.value,url)
       } else message.value = 'Connect to RJAY Wi-Fi, open its sign-in page, and enter the voucher code and PIN shown below.'
     }

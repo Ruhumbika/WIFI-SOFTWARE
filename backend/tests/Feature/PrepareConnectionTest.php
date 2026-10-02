@@ -121,6 +121,35 @@ class PrepareConnectionTest extends TestCase
         ], $this->orderHeaders($order))->assertOk()->assertJsonPath('login_url', null);
     }
 
+    public function test_login_targets_are_independent_of_management_and_never_activate_vouchers(): void
+    {
+        $order = $this->paidOrder();
+        config()->set(['mikrotik.base_url' => 'http://10.77.0.2:8081/rest', 'mikrotik.password' => 'test-only',
+            'mikrotik.hotspot_login_url' => 'http://rjayshotspot.net/login',
+            'mikrotik.hotspot_allowed_hosts' => ['rjayshotspot.net', '10.10.1.1']]);
+        Http::fake(['*' => Http::response(['version' => '7'], 200)]);
+        $url = "/api/public/orders/{$order->uuid}/prepare-connection";
+        foreach ([null, 'http://rjayshotspot.net/login', 'http://10.10.1.1/login'] as $target) {
+            $this->postJson($url, ['login_url' => $target], $this->orderHeaders($order))
+                ->assertOk()->assertJsonPath('login_url', $target ?? 'http://rjayshotspot.net/login');
+        }
+        foreach (['http://10.77.0.2/login', 'https://wifi.95-111-248-145.sslip.io/login',
+            'http://rjayshotspot.net.evil.test/login', 'http://evil.test/login',
+            'http://user@rjayshotspot.net/login', 'http://rjayshotspot.net:8081/login',
+            'http://rjayshotspot.net/login?next=evil', 'http://rjayshotspot.net/other'] as $target) {
+            $this->postJson($url, ['login_url' => $target], $this->orderHeaders($order))
+                ->assertOk()->assertJsonPath('login_url', null);
+        }
+        $this->assertNull($order->voucher->fresh()->activated_at);
+        $this->assertNull($order->voucher->fresh()->expires_at);
+
+        $redeemed = $this->postJson('/api/public/vouchers/redeem', ['code' => $order->voucher->code, 'pin' => '123456'])
+            ->assertOk()->assertJsonPath('login_url', 'http://rjayshotspot.net/login');
+        $this->postJson("/api/public/vouchers/{$order->voucher->uuid}/prepare-connection", ['login_url' => 'http://10.10.1.1/login'],
+            ['X-Voucher-Recovery-Token' => $redeemed->json('recovery_token')])
+            ->assertOk()->assertJsonPath('login_url', 'http://10.10.1.1/login');
+    }
+
     public function test_bound_device_mismatch_is_reported_before_router_login(): void
     {
         $order = $this->paidOrder('active');

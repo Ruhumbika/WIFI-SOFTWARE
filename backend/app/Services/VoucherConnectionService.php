@@ -45,14 +45,18 @@ final class VoucherConnectionService
         if ($v->status === 'provision_pending') {
             return ['state' => 'preparing'];
         }
-        $host = parse_url((string) config('mikrotik.base_url'), PHP_URL_HOST);
-        $trusted = $loginUrl && $host && strcasecmp((string) parse_url($loginUrl, PHP_URL_HOST), (string) $host) === 0
-            && in_array(parse_url($loginUrl, PHP_URL_SCHEME), ['http', 'https'], true)
-            && in_array(parse_url($loginUrl, PHP_URL_PORT), [null, 80, 443], true)
-            && parse_url($loginUrl, PHP_URL_PATH) === '/login'
-            && ! parse_url($loginUrl, PHP_URL_USER) && ! parse_url($loginUrl, PHP_URL_QUERY) && ! parse_url($loginUrl, PHP_URL_FRAGMENT);
+        // Customer authentication targets are independent of the management REST address.
+        $candidate = $loginUrl ?: config('mikrotik.hotspot_login_url');
+        $parts = parse_url((string) $candidate);
+        $allowed = array_map('strtolower', config('mikrotik.hotspot_allowed_hosts', []));
+        $trusted = $parts && in_array(strtolower($parts['host'] ?? ''), $allowed, true)
+            && in_array($parts['scheme'] ?? '', ['http', 'https'], true)
+            && in_array($parts['port'] ?? null, [null, 80, 443], true)
+            && ($parts['path'] ?? '') === '/login'
+            && !array_key_exists('user', $parts) && !array_key_exists('pass', $parts)
+            && !array_key_exists('query', $parts) && !array_key_exists('fragment', $parts);
 
-        return ['state' => $v->activated_at ? 'active' : 'ready', 'voucher_status' => $v->status, 'login_url' => $trusted ? $loginUrl : null];
+        return ['state' => $v->activated_at ? 'active' : 'ready', 'voucher_status' => $v->status, 'login_url' => $trusted ? $candidate : null];
     }
 
     public function connection(Voucher $v, ?string $mac): array

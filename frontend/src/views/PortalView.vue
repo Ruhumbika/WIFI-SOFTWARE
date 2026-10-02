@@ -9,7 +9,7 @@ import SignalEye from "../components/portal/SignalEye.vue";
 import { voucherTimeLeft } from "../utils/voucherTime";
 
 import VoucherAccessPanel from "../components/portal/VoucherAccessPanel.vue";
-import { submitHotspotLogin as sendHotspotLogin } from "../utils/hotspotLogin";
+import { submitHotspotLogin as sendHotspotLogin, captiveContext, preserveCaptiveContext } from "../utils/hotspotLogin";
 const portalMode = ref<"home" | "buy" | "redeem" | "recovery">(
   new URLSearchParams(location.search).has("voucher-return")
     ? "recovery"
@@ -93,15 +93,7 @@ watch(
 );
 
 const orderStorageKey = "rjay_current_order";
-const params = new URLSearchParams(location.search);
-if (params.has('payment-return')) {
-  try {
-    const saved = JSON.parse(sessionStorage.getItem('rjay_hotspot_context') || '{}');
-    for (const key of ['mac', 'link-login-only', 'link-orig']) {
-      if (!params.has(key) && typeof saved[key] === 'string') params.set(key, saved[key]);
-    }
-  } catch { /* Missing context falls back to the existing manual connection flow. */ }
-}
+const params = captiveContext();
 const deviceMac = params.get("mac") || "";
 const linkLogin = params.get("link-login-only") || "";
 const linkOrig = params.get("link-orig") || "";
@@ -134,8 +126,7 @@ onMounted(async () => {
         await verifyConnection();
       } else if (
         order.value.status === "completed" &&
-        order.value.voucher &&
-        linkLogin
+        order.value.voucher
       ) {
         await prepareConnection(true);
       }
@@ -408,7 +399,6 @@ async function refresh() {
     } else if (
       !wasCompleted &&
       completed.value &&
-      linkLogin &&
       connectionState.value !== "connected"
     ) {
       await prepareConnection(true);
@@ -512,7 +502,7 @@ async function prepareConnection(automatic = false) {
 function submitHotspotLogin(loginUrl: string) {
   if (!order.value?.voucher) return;
 
-  const returnUrl = new URL(location.href);
+  const returnUrl = preserveCaptiveContext(new URL(location.href), params);
   returnUrl.searchParams.set("order", order.value.uuid);
   returnUrl.searchParams.set("connected", "1");
   sendHotspotLogin(loginUrl, order.value.voucher, returnUrl);
