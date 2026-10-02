@@ -15,12 +15,38 @@ class SyncHotspotSessions extends Command
     protected $signature = 'rjay:sync-hotspot';
     protected $description = 'Synchronize active MikroTik HotSpot sessions, bind first MAC and expire vouchers.';
 
+    private int $failures = 0;
     public function handle(MikrotikRestClient $mikrotik): int
+    {
+        // The scheduler mutex alone does not protect diagnostic/manual invocations.
+        $lock = Cache::lock('rjay:hotspot:execution', 86400);
+        if (!$lock->get()) {
+            Log::warning('HotSpot synchronization already running.');
+            Cache::put('rjay:hotspot:last-result', ['state'=>'blocked','at'=>now()->toIso8601String()], now()->addDays(30));
+            return self::FAILURE;
+        }
+        $this->failures = 0;
+        try {
+            $result = $this->synchronize($mikrotik);
+            Cache::put('rjay:hotspot:last-result', ['state'=>$result === self::SUCCESS ? 'success' : 'failed','failures'=>$this->failures,'at'=>now()->toIso8601String()], now()->addDays(30));
+            return $result;
+        } catch (Throwable) {
+            Log::error('HotSpot synchronization failed.');
+            Cache::put('rjay:hotspot:last-result', ['state'=>'failed','at'=>now()->toIso8601String()], now()->addDays(30));
+            return self::FAILURE;
+        } finally { $lock->release(); }
+    }
+    private function failure(?int $voucherId = null): void {
+        $this->failures++;
+        Log::error('HotSpot voucher/session operation failed; retry required.', ['voucher_id'=>$voucherId]);
+    }
+    private function synchronize(MikrotikRestClient $mikrotik): int
     {
         try {
             $active = $mikrotik->activeSessions();
         } catch (Throwable $e) {
-            $this->error('MikroTik unavailable: '.$e->getMessage());
+            $this->failure();
+            $this->error('MikroTik unavailable.');
             return self::FAILURE;
         }
 
@@ -47,12 +73,12 @@ class SyncHotspotSessions extends Command
                     }
                     if (in_array($voucher->status, ['disabled', 'revoked', 'expired'], true)) {
                         Log::error('Blocked voucher was active on the router.', ['voucher_id' => $voucher->id]);
-                        try { $mikrotik->disableVoucher($voucher); } catch (Throwable $e) { report($e); }
+                        try { $mikrotik->disableVoucher($voucher); } catch (Throwable) { $this->failure($voucher->id); }
                         try {
                             $mikrotik->disconnect($activeId);
                             HotspotSession::where('mikrotik_id', $activeId)->whereNull('ended_at')->update(['ended_at' => now()]);
                         } catch (Throwable $e) {
-                            report($e);
+                            $this->failure($voucher->id);
                         }
                         return;
                     }
@@ -60,6 +86,7 @@ class SyncHotspotSessions extends Command
                     if ($voucher->device_mac && strtoupper($voucher->device_mac) !== $mac) {
                         \App\Services\VoucherEvents::record($voucher,'device_mismatch',$mac);
                         try { $mikrotik->disconnect($activeId); } catch (Throwable) {
+                            $this->failure($voucher->id);
                             $this->warn('A conflicting device could not be disconnected; retry is required.');
                         }
                         return;
@@ -95,6 +122,7 @@ class SyncHotspotSessions extends Command
                     ])->save();
                 });
             } catch (Throwable) {
+                $this->failure($voucher->id);
                 $this->warn('A voucher session could not be synchronized; it will be retried.');
             }
             $seen[] = $activeId;
@@ -107,10 +135,11 @@ class SyncHotspotSessions extends Command
             ->whereNotNull('expires_at')
             ->where('expires_at', '<=', now())
             ->each(function (Voucher $voucher) use ($mikrotik) {
-                try { $mikrotik->disableVoucher($voucher); } catch (Throwable) {}
+                try { $mikrotik->disableVoucher($voucher); } catch (Throwable) { $this->failure($voucher->id); }
                 $voucher->forceFill(['status' => 'expired', 'last_synced_at' => now()])->save();
             });
 
+        if ($this->failures > 0) return self::FAILURE;
         Cache::put('rjay:hotspot:last-successful-sync', now()->toIso8601String(), now()->addDays(30));
 
         $this->info('Synced '.count($seen).' RJAY active session(s).');

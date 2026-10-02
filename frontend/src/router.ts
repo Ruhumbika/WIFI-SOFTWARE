@@ -4,6 +4,7 @@ import AdminLoginView from './views/AdminLoginView.vue'
 import DashboardView from './views/DashboardView.vue'
 import PlansView from './views/PlansView.vue'
 import VouchersView from './views/VouchersView.vue'
+import SupportView from './views/SupportView.vue'
 import PaymentsView from './views/PaymentsView.vue'
 import SessionsView from './views/SessionsView.vue'
 import RouterView from './views/RouterView.vue'
@@ -19,6 +20,7 @@ const router = createRouter({ history:createWebHistory(), routes:[
   {path:'/admin/plans',component:PlansView,meta:{admin:true}},
   {path:'/admin/vouchers',component:VouchersView,meta:{admin:true}},
   {path:'/admin/vouchers/:id',component:VoucherDetailView,meta:{admin:true}},
+  {path:'/admin/support',component:SupportView,meta:{admin:true}},
   {path:'/admin/payments',component:PaymentsView,meta:{admin:true}},
   {path:'/admin/sessions',component:SessionsView,meta:{admin:true}},
   {path:'/admin/router',component:RouterView,meta:{admin:true}},

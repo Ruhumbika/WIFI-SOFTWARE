@@ -1,26 +1,44 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import DashboardAnalytics from "../components/admin/DashboardAnalytics.vue";
+import { paymentMoney, reportingDate } from "../utils/paymentReporting";
 import AdminShell from "../components/AdminShell.vue";
 import { api } from "../api";
-import { formatDate } from "../utils/formatDate";
 
 const dashboard = ref<any>({});
-const routerHealth = ref<any>({ connected: false });
+const routerHealth = ref<any>({});
+const dashboardUpdated = ref<string | null>(null);
+const routerUpdated = ref<string | null>(null);
+const routerError = ref("");
 const loading = ref(true);
+const error = ref("");
 
 async function load() {
+  if (loading.value && dashboardUpdated.value) return;
   loading.value = true;
+  routerError.value = "";
+  error.value = "";
   try {
     const [dashboardResponse, routerResponse] = await Promise.allSettled([
       api.get("/admin/dashboard"),
       api.get("/admin/router/health"),
     ]);
 
-    if (dashboardResponse.status === "fulfilled")
+    if (dashboardResponse.status === "fulfilled") {
       dashboard.value = dashboardResponse.value.data;
-    if (routerResponse.status === "fulfilled")
+      dashboardUpdated.value = new Date().toISOString();
+    }
+    else error.value = "Dashboard could not be loaded.";
+    if (routerResponse.status === "fulfilled") {
       routerHealth.value = routerResponse.value.data;
-    else routerHealth.value = routerResponse.reason?.response?.data || { connected: false };
+      routerUpdated.value = new Date().toISOString();
+    } else {
+      const response = routerResponse.reason?.response;
+      if (response?.status === 503 && response.data?.connected === false) {
+        routerHealth.value = response.data;
+        routerUpdated.value = new Date().toISOString();
+      } else routerError.value = "Network status could not be checked.";
+    }
   } finally {
     loading.value = false;
   }
@@ -30,39 +48,25 @@ const attentionCount = computed(
   () =>
     Number(dashboard.value.pending_provision || 0) +
     Number(dashboard.value.failed_payments || 0) +
-    (routerHealth.value.connected ? 0 : 1),
+    Number(dashboard.value.open_support_requests || 0) +
+    (routerHealth.value.connected === false ? 1 : 0),
 );
+const attentionKnown = computed(() => !!dashboardUpdated.value && !!routerUpdated.value && !error.value && !routerError.value);
+const networkState = computed(() => routerError.value ? "Unknown" : routerHealth.value.connected === true ? "Online" : routerHealth.value.connected === false ? "Unavailable" : loading.value ? "Checking…" : "Unknown");
+function count(value: unknown) { return value === undefined || value === null ? (loading.value ? "Loading…" : "—") : value; }
 const routerResource = computed(() => routerHealth.value?.resource || {});
 
-function paymentTone(status: string) {
-  if (status === "completed") return "success";
-  if (status === "failed") return "danger";
-  return "pending";
-}
-
-function friendlyStatus(status: string) {
-  const labels: Record<string, string> = {
-    completed: "Paid",
-    pending: "Pending",
-    failed: "Failed",
-    expired: "Expired",
-  };
-  return labels[status] || status;
-}
-
-function displayPhone(phone?: string | null) {
-  if (!phone) return "No phone recorded";
-  const digits = phone.replace(/\D/g, "");
-  return /^255[67]\d{8}$/.test(digits)
-    ? `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 9)} ${digits.slice(9)}`
-    : phone;
-}
-
-onMounted(load);
+let refreshTimer: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  void load();
+  refreshTimer = setInterval(() => { if (!loading.value && document.visibilityState === 'visible') void load(); }, 60000);
+});
+onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
 </script>
 
 <template>
   <AdminShell>
+    <div class="dashboard-page" :class="{ 'is-loading': loading && !dashboardUpdated }">
     <div class="dashboard-head">
       <div>
         <h1>Dashboard</h1>
@@ -79,20 +83,22 @@ onMounted(load);
       <router-link to="/admin/router"><i class="bi bi-router" aria-hidden="true"></i> Router</router-link>
     </nav>
 
+    <p v-if="error" role="alert" class="alert alert-warning py-2">{{ error }} {{ dashboardUpdated ? "Showing previously loaded data." : "Use Refresh to retry." }}</p>
+    <p v-if="dashboardUpdated" class="small text-secondary mb-2">Last updated: {{ reportingDate(dashboardUpdated) }}<span v-if="error"> · Out of date</span></p>
+    <p v-if="dashboard.missing_settlement" class="alert alert-warning small">{{ dashboard.missing_settlement }} completed payments today have no confirmed settlement. Net revenue is incomplete.</p>
     <div class="dashboard-stats">
       <router-link to="/admin/sessions" class="dashboard-stat">
         <span class="dashboard-stat__icon"><i class="bi bi-wifi"></i></span>
         <span class="dashboard-stat__label">Online now</span>
-        <strong>{{ dashboard.online || 0 }}</strong>
+        <strong>{{ count(dashboard.online) }}</strong>
       </router-link>
       <router-link to="/admin/payments" class="dashboard-stat">
         <span class="dashboard-stat__icon"
           ><i class="bi bi-cash-stack"></i
         ></span>
-        <span class="dashboard-stat__label">Revenue today</span>
+        <span class="dashboard-stat__label">Net revenue today</span>
         <strong class="money"
-          >TZS
-          {{ Number(dashboard.revenue_today || 0).toLocaleString() }}</strong
+          >{{ dashboardUpdated ? paymentMoney(dashboard.net_revenue_today) : loading ? "Loading…" : "—" }}</strong
         >
       </router-link>
       <router-link to="/admin/vouchers" class="dashboard-stat">
@@ -100,7 +106,7 @@ onMounted(load);
           ><i class="bi bi-ticket-perforated"></i
         ></span>
         <span class="dashboard-stat__label">Active vouchers</span>
-        <strong>{{ dashboard.active_vouchers || 0 }}</strong>
+        <strong>{{ count(dashboard.active_vouchers) }}</strong>
       </router-link>
       <router-link
         to="/admin/payments"
@@ -109,13 +115,14 @@ onMounted(load);
       >
         <span class="dashboard-stat__icon"><i class="bi bi-receipt"></i></span>
         <span class="dashboard-stat__label">Sales today</span>
-        <strong>{{ dashboard.sales_today || 0 }}</strong>
+        <strong>{{ count(dashboard.sales_today) }}</strong>
         <small v-if="dashboard.failed_payments"
           >{{ dashboard.failed_payments }} failed</small
         >
       </router-link>
     </div>
 
+    <DashboardAnalytics />
     <div class="dashboard-grid mt-3">
       <section class="ops-card system-health">
         <div class="ops-card__head">
@@ -124,21 +131,26 @@ onMounted(load);
           </div>
           <span
             class="health-badge"
-            :class="routerHealth.connected ? 'online' : 'offline'"
+            :class="routerError || routerHealth.connected === undefined ? 'unknown' : routerHealth.connected ? 'online' : 'offline'"
             ><span></span
-            >{{ routerHealth.connected ? "Online" : "Offline" }}</span
+            >{{ networkState }}</span
           >
         </div>
+        <p v-if="routerError" class="small text-secondary" role="status">{{ routerError }} {{ routerUpdated ? "Showing previous results." : "Use Refresh to retry." }}</p>
+        <p v-if="routerUpdated" class="small text-secondary mb-0">Last checked: {{ reportingDate(routerUpdated) }}</p>
         <div class="health-list">
           <div>
             <span>MikroTik</span
             ><strong>{{
-              routerHealth.connected ? "Connected" : "Unavailable"
+              routerHealth.connected === undefined ? "Not checked" : routerHealth.connected ? "Connected" : "Unavailable"
             }}</strong>
           </div>
           <div><span>HotSpot</span><strong>{{ !routerHealth.connected ? "Not checked" : routerHealth.hotspot ? "Responding" : "Issue" }}</strong></div>
           <div><span>Active users</span><strong>{{ routerHealth.active_users ?? "Unavailable" }}</strong></div>
-          <div><span>Last sync</span><strong>{{ formatDate(routerHealth.last_sync, "Not recorded") }}</strong></div>
+          <div><span>Scheduler</span><strong>{{ !dashboardUpdated ? 'Not checked' : dashboard.sync_health?.scheduler_status === 'healthy' ? 'Healthy' : dashboard.sync_health?.scheduler_status === 'delayed' ? 'Delayed' : 'Not recorded' }}</strong></div>
+          <div><span>Last scheduler attempt</span><strong>{{ reportingDate(dashboard.sync_health?.last_scheduler_attempt) }}</strong></div>
+          <div><span>Last successful session sync</span><strong>{{ reportingDate(dashboard.sync_health?.last_successful_sync) }}</strong></div>
+          <div v-if="['failed','blocked'].includes(dashboard.sync_health?.last_sync_result?.state)"><span>Session sync</span><strong>Failed / partial — retry required</strong></div>
         </div>
         <details class="mt-3">
           <summary class="text-secondary">Router details</summary>
@@ -174,18 +186,19 @@ onMounted(load);
             <span class="dashboard-eyebrow">Attention</span>
             <h2>
               {{
-                attentionCount
+                !attentionKnown ? "Not fully checked" : attentionCount
                   ? `${attentionCount} item${attentionCount === 1 ? "" : "s"}`
                   : "All clear"
               }}
             </h2>
           </div>
-          <span class="attention-count" :class="{ clear: !attentionCount }">{{
-            attentionCount
+          <span class="attention-count" :class="{ clear: attentionKnown && !attentionCount }">{{
+            attentionKnown ? attentionCount : "—"
           }}</span>
         </div>
         <div v-if="attentionCount" class="attention-list">
-          <router-link v-if="!routerHealth.connected" to="/admin/router">
+          <router-link v-if="dashboard.open_support_requests" to="/admin/support?status=all"><span class="attention-icon"><i class="bi bi-life-preserver"></i></span><strong>{{ dashboard.open_support_requests }} support requests need attention</strong><i class="bi bi-chevron-right"></i></router-link>
+          <router-link v-if="routerHealth.connected === false" to="/admin/router">
             <span class="attention-icon"><i class="bi bi-router"></i></span>
             <span><strong>Router unavailable</strong></span>
             <i class="bi bi-chevron-right"></i>
@@ -215,6 +228,7 @@ onMounted(load);
             <i class="bi bi-chevron-right"></i>
           </router-link>
         </div>
+        <p v-else-if="!attentionKnown" class="small text-secondary" role="status">{{ loading ? "Checking…" : "Some checks are unavailable. Refresh to retry." }}</p>
         <div v-else class="all-clear">
           <i class="bi bi-check-circle-fill"></i
           ><span>No issues.</span>
@@ -222,52 +236,20 @@ onMounted(load);
       </section>
     </div>
 
-    <section class="ops-card mt-3">
-      <div class="ops-card__head recent-head">
-        <div>
-          <h2>Recent payments</h2>
-        </div>
-        <router-link to="/admin/payments">View all</router-link>
-      </div>
-      <div v-if="dashboard.recent_payments?.length" class="recent-list">
-        <div
-          v-for="payment in dashboard.recent_payments"
-          :key="payment.id"
-          class="recent-row"
-        >
-          <span class="recent-row__icon" :class="paymentTone(payment.status)"
-            ><i class="bi bi-phone"></i
-          ></span>
-          <div class="recent-row__main">
-            <strong>{{
-              payment.order?.plan?.name || "Internet package"
-            }}</strong>
-            <span>{{ displayPhone(payment.order?.customer_phone) }}</span>
-          </div>
-          <div class="recent-row__amount">
-            <strong
-              >TZS {{ Number(payment.amount || 0).toLocaleString() }}</strong
-            ><span :class="paymentTone(payment.status)">{{
-              friendlyStatus(payment.status)
-            }}</span>
-          </div>
-        </div>
-      </div>
-      <div v-else class="empty-activity">No payments yet.</div>
-    </section>
+    </div>
   </AdminShell>
 </template>
 
 <style scoped>
-.dashboard-actions { display:flex; gap:10px; flex-wrap:wrap; }
-.dashboard-actions a { display:flex; flex:1; justify-content:center; align-items:center; gap:8px; min-height:44px; padding:9px 14px; border:1px solid #f7fbff; border-radius:14px; background:#eef3f9; box-shadow:4px 4px 9px #cbd5df,-4px -4px 9px #fff; color:#196b97; text-decoration:none; font-size:13px; font-weight:700; }
+.dashboard-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.dashboard-actions a { display:flex; flex:1; justify-content:center; align-items:center; gap:6px; min-height:38px; padding:6px 12px; border:1px solid #f7fbff; border-radius:12px; background:#eef3f9; box-shadow:3px 3px 7px #cbd5df,-3px -3px 7px #fff; color:#196b97; text-decoration:none; font-size:13px; font-weight:700; }
 .dashboard-actions a:focus-visible { outline:2px solid #196b97; outline-offset:3px; }
 .dashboard-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 .dashboard-head h1 {
   margin: 2px 0 0;
@@ -290,7 +272,7 @@ onMounted(load);
 .refresh-button {
   display: flex;
   min-width: 46px;
-  min-height: 44px;
+  min-height: 38px;
   align-items: center;
   justify-content: center;
   gap: 7px;
@@ -310,14 +292,14 @@ onMounted(load);
 .dashboard-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 .dashboard-stat {
   position: relative;
   display: flex;
-  min-height: 132px;
+  min-height: 104px;
   flex-direction: column;
-  padding: 15px;
+  padding: 11px;
   border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: 18px;
   background: #eef3f9;
@@ -327,15 +309,15 @@ onMounted(load);
 }
 .dashboard-stat__icon {
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   place-items: center;
   border-radius: 11px;
   background: #f1faf7;
   color: #0f9675;
 }
 .dashboard-stat__label {
-  margin-top: 14px;
+  margin-top: 8px;
   color: #64748b;
   font-size: 0.72rem;
   font-weight: 700;
@@ -361,7 +343,7 @@ onMounted(load);
   gap: 12px;
 }
 .ops-card {
-  padding: 17px;
+  padding: 12px;
   border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: 18px;
   background: #eef3f9;
@@ -406,11 +388,11 @@ onMounted(load);
 .health-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 16px;
+  gap: 7px;
+  margin-top: 10px;
 }
 .health-list div {
-  padding: 11px;
+  padding: 8px;
   border-radius: 12px;
   background: #f8fafc;
 }
@@ -463,8 +445,8 @@ onMounted(load);
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
-  min-height: 70px;
-  padding: 10px;
+  min-height: 54px;
+  padding: 8px;
   border-radius: 13px;
   background: #fffaf5;
   color: #1e293b;
@@ -494,101 +476,13 @@ onMounted(load);
 }
 .all-clear {
   display: flex;
-  min-height: 100px;
+  min-height: 58px;
   align-items: center;
   justify-content: center;
   gap: 8px;
   color: #047857;
   font-size: 0.8rem;
   text-align: center;
-}
-.recent-head a {
-  color: #0f9675;
-  font-size: 0.75rem;
-  font-weight: 800;
-  text-decoration: none;
-}
-.recent-list {
-  display: grid;
-  margin-top: 10px;
-}
-.recent-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 0;
-  border-top: 1px solid #eef2f7;
-}
-.recent-row__icon {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border-radius: 11px;
-  background: #f1f5f9;
-  color: #475569;
-}
-.recent-row__icon.success {
-  background: #ecfdf5;
-  color: #047857;
-}
-.recent-row__icon.danger {
-  background: #fff1f2;
-  color: #be123c;
-}
-.recent-row__icon.pending {
-  background: #fffbeb;
-  color: #a16207;
-}
-.recent-row__main {
-  min-width: 0;
-}
-.recent-row__main strong,
-.recent-row__main span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.recent-row__main strong {
-  font-size: 0.8rem;
-}
-.recent-row__main span {
-  margin-top: 3px;
-  color: #64748b;
-  font-size: 0.68rem;
-}
-.recent-row__amount {
-  text-align: right;
-}
-.recent-row__amount strong,
-.recent-row__amount span {
-  display: block;
-}
-.recent-row__amount strong {
-  font-size: 0.76rem;
-}
-.recent-row__amount span {
-  margin-top: 3px;
-  font-size: 0.67rem;
-  font-weight: 800;
-  text-transform: capitalize;
-}
-.recent-row__amount span.success {
-  color: #047857;
-}
-.recent-row__amount span.danger {
-  color: #be123c;
-}
-.recent-row__amount span.pending {
-  color: #a16207;
-}
-.empty-activity {
-  padding: 32px 0;
-  text-align: center;
-  color: #94a3b8;
-  font-size: 0.8rem;
 }
 @keyframes spin {
   to {
@@ -600,13 +494,13 @@ onMounted(load);
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .dashboard-stat {
-    min-height: 145px;
+    min-height: 96px;
   }
   .dashboard-grid {
     grid-template-columns: 1fr 1fr;
   }
   .ops-card {
-    padding: 20px;
+    padding: 14px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -622,9 +516,20 @@ onMounted(load);
   .ops-card { padding: 12px; border-radius: 16px; min-width: 0; }
   .health-list { gap: 8px; margin-top: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .health-list div { padding: 9px; overflow-wrap: anywhere; }
-  .recent-row { gap: 8px; padding: 9px 0; }
-  .recent-row__icon { width: 28px; height: 28px; border-radius: 9px; }
-  .recent-row__main span { font-size: 0.75rem; }
-  .recent-row__amount { max-width: 100px; overflow-wrap: anywhere; }
 }
+.health-badge.unknown { background: #edf2f7; color: #64748b; }
+</style>
+
+<style scoped>
+.dashboard-page .dashboard-stat { display:grid; grid-template-columns:34px minmax(0,1fr); align-content:center; gap:3px 10px; min-height:86px; padding:12px; border:1px solid #d5e2eb; border-left:4px solid #196b97; border-radius:8px; background:#fff; box-shadow:none; }
+.dashboard-page .dashboard-stat__icon { grid-row:1/3; background:#eaf0f5; color:#196b97; align-self:center; }
+.dashboard-page .dashboard-stat__label { margin:0; font-size:11px; }
+.dashboard-page .dashboard-stat strong { font-size:22px; margin:0; letter-spacing:0; }
+.dashboard-page .dashboard-stat strong.money { font-size:17px; }
+.dashboard-page .dashboard-actions a { box-shadow:none; border:1px solid #9dd4f2; border-radius:6px; background:#fff; }
+.dashboard-page .ops-card { border:1px solid #d5e2eb; border-radius:8px; background:#fff; box-shadow:none; }
+</style>
+
+<style scoped>
+.dashboard-page.is-loading .dashboard-stat strong { color:transparent; background:#eaf0f5; border-radius:4px; width:90px; height:22px; overflow:hidden; }
 </style>

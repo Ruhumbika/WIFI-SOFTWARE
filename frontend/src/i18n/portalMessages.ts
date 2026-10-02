@@ -1,4 +1,8 @@
 export const portalMessages: [string, string][] = [
+  ["Need help", "Nahitaji msaada"],
+  ["Sending…", "Tunatuma…"],
+  ["Ombi la msaada limetumwa. Tutawasiliana nawe.", "Ombi la msaada limetumwa. Tutawasiliana nawe."],
+  ["Support request could not be sent. Please try again.", "Ombi la msaada halijatumwa. Tafadhali jaribu tena."],
   [
     "Use a voucher",
     "Tumia voucher"

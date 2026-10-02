@@ -32,3 +32,23 @@ export function preserveCaptiveContext(url: URL, params: URLSearchParams) {
   }
   return url
 }
+
+export function hotspotReturnUrl(params: URLSearchParams, identity: { voucherUuid: string } | { orderUuid: string }) {
+  const url = preserveCaptiveContext(new URL(location.href), params)
+  url.searchParams.set('connected', '1')
+  if ('voucherUuid' in identity) {
+    url.searchParams.delete('order')
+    url.searchParams.set('voucher-return', '1')
+    url.searchParams.set('voucher-uuid', identity.voucherUuid)
+  } else {
+    url.searchParams.delete('voucher-return')
+    url.searchParams.delete('voucher-uuid')
+    url.searchParams.set('order', identity.orderUuid)
+  }
+  return url
+}
+
+export function orderToRestore(params: URLSearchParams, storageKey: string) {
+  if (params.has('voucher-return')) return null
+  return params.get('order') || sessionStorage.getItem(storageKey)
+}

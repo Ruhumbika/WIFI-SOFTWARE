@@ -8,8 +8,14 @@ import VoucherCard from "../components/vouchers/VoucherCard.vue";
 import SignalEye from "../components/portal/SignalEye.vue";
 import { voucherTimeLeft } from "../utils/voucherTime";
 
+import SupportAction from "../components/portal/SupportAction.vue";
 import VoucherAccessPanel from "../components/portal/VoucherAccessPanel.vue";
-import { submitHotspotLogin as sendHotspotLogin, captiveContext, preserveCaptiveContext } from "../utils/hotspotLogin";
+import {
+  submitHotspotLogin as sendHotspotLogin,
+  captiveContext,
+  hotspotReturnUrl,
+  orderToRestore,
+} from "../utils/hotspotLogin";
 const portalMode = ref<"home" | "buy" | "redeem" | "recovery">(
   new URLSearchParams(location.search).has("voucher-return")
     ? "recovery"
@@ -112,8 +118,7 @@ onMounted(async () => {
     error.value = "Packages are unavailable right now. Please try again.";
   }
 
-  const savedOrder =
-    params.get("order") || sessionStorage.getItem(orderStorageKey);
+  const savedOrder = orderToRestore(params, orderStorageKey);
   if (savedOrder) {
     if (!params.has("voucher-return")) portalMode.value = "buy";
     try {
@@ -124,10 +129,7 @@ onMounted(async () => {
       if (params.get("connected") === "1") {
         connectionState.value = "checking";
         await verifyConnection();
-      } else if (
-        order.value.status === "completed" &&
-        order.value.voucher
-      ) {
+      } else if (order.value.status === "completed" && order.value.voucher) {
         await prepareConnection(true);
       }
 
@@ -241,15 +243,31 @@ async function continuePayment() {
   loading.value = true;
   error.value = "";
   try {
-    if (order.value?.checkout_state === 'pin_required') {
+    if (order.value?.checkout_state === "pin_required") {
       startPoll();
       return;
     }
     if (order.value?.payment?.checkout_url) {
       const checkout = new URL(order.value.payment.checkout_url);
-      if (checkout.protocol !== 'https:' || checkout.hostname !== 'snippe.me' || checkout.username || checkout.password
-        || checkout.port || checkout.search || checkout.hash || !/^\/checkout\/[A-Za-z0-9_-]+$/.test(checkout.pathname)) throw new Error('Invalid checkout URL');
-      sessionStorage.setItem('rjay_hotspot_context', JSON.stringify({ mac: deviceMac, 'link-login-only': linkLogin, 'link-orig': linkOrig }));
+      if (
+        checkout.protocol !== "https:" ||
+        checkout.hostname !== "snippe.me" ||
+        checkout.username ||
+        checkout.password ||
+        checkout.port ||
+        checkout.search ||
+        checkout.hash ||
+        !/^\/checkout\/[A-Za-z0-9_-]+$/.test(checkout.pathname)
+      )
+        throw new Error("Invalid checkout URL");
+      sessionStorage.setItem(
+        "rjay_hotspot_context",
+        JSON.stringify({
+          mac: deviceMac,
+          "link-login-only": linkLogin,
+          "link-orig": linkOrig,
+        }),
+      );
       window.location.assign(checkout.href);
       return;
     }
@@ -502,9 +520,7 @@ async function prepareConnection(automatic = false) {
 function submitHotspotLogin(loginUrl: string) {
   if (!order.value?.voucher) return;
 
-  const returnUrl = preserveCaptiveContext(new URL(location.href), params);
-  returnUrl.searchParams.set("order", order.value.uuid);
-  returnUrl.searchParams.set("connected", "1");
+  const returnUrl = hotspotReturnUrl(params, { orderUuid: order.value.uuid });
   sendHotspotLogin(loginUrl, order.value.voucher, returnUrl);
 }
 
@@ -631,10 +647,22 @@ const connectionProblem = computed(() =>
 const paymentServiceUnavailable = computed(() =>
   error.value.includes("Huduma ya malipo haipatikani"),
 );
-const hostedCheckout = computed(() => !order.value?.payment || order.value.payment.provider === 'snippe' && !!order.value.payment.session_reference);
-const hostedPushConfirmed = computed(() => order.value?.checkout_state === 'pin_required');
+const hostedCheckout = computed(
+  () =>
+    !order.value?.payment ||
+    (order.value.payment.provider === "snippe" &&
+      !!order.value.payment.session_reference),
+);
+const hostedPushConfirmed = computed(
+  () => order.value?.checkout_state === "pin_required",
+);
 const paymentTitle = computed(() => {
-  if (hostedCheckout.value) return loading.value ? 'Tunatuma ombi…' : hostedPushConfirmed.value ? 'Weka PIN kwenye simu' : 'Continue to payment';
+  if (hostedCheckout.value)
+    return loading.value
+      ? "Tunatuma ombi…"
+      : hostedPushConfirmed.value
+        ? "Weka PIN kwenye simu"
+        : "Continue to payment";
   if (loading.value || resendBusy.value) return "Tunatuma ombi…";
   if (paymentServiceUnavailable.value) return "Malipo hayapatikani";
   if (paymentFailed.value) return "Malipo hayajakamilika";
@@ -645,7 +673,7 @@ const paymentTitle = computed(() => {
 });
 
 const paymentMessage = computed(() => {
-  if (hostedCheckout.value) return error.value || '';
+  if (hostedCheckout.value) return error.value || "";
   if (paymentServiceUnavailable.value) return "Jaribu tena baadaye.";
   if (error.value) return error.value;
   if (paymentAwaitingPin.value) return "";
@@ -806,13 +834,17 @@ const browsingDestination = computed(() => {
             :key="portalMode === 'recovery' ? 'recovery' : 'redeem'"
             :mode="portalMode === 'recovery' ? 'recovery' : 'redeem'"
             compact
+            :support-phone="normalizedPhone"
             @buy="
               portalMode = 'home';
               startNewPurchase();
             "
           />
         </section>
-        <div class="purchase-flow" :class="{ 'purchase-flow--voucher': order?.voucher }">
+        <div
+          class="purchase-flow"
+          :class="{ 'purchase-flow--voucher': order?.voucher }"
+        >
           <section
             v-if="
               recoveryDisplay ||
@@ -827,11 +859,7 @@ const browsingDestination = computed(() => {
                 {{ t("Recovery PIN:") }} {{ recoveryDisplay }}
               </h2>
               <p>
-                {{
-                  t(
-                    "Save a recovery PIN to find this voucher later.",
-                  )
-                }}
+                {{ t("Save a recovery PIN to find this voucher later.") }}
               </p>
               <button
                 class="btn btn-primary"
@@ -873,8 +901,9 @@ const browsingDestination = computed(() => {
             <div class="status-eye"><SignalEye status="error" /></div>
             <h1>{{ t("Hatujaweza kukagua malipo") }}</h1>
             <p>{{ t(restoreMessage) }}</p>
-            <button class="primary-action mt-4" @click="retryRestore">
-              {{ t("Jaribu tena") }}
+            <button class="primary-action connection-action mt-4" @click="retryRestore">
+              <span class="connection-action__label">{{ t("Jaribu tena") }}</span>
+              <span class="inline-eye"><SignalEye :status="portalEyeStatus" /></span>
             </button>
           </section>
 
@@ -1023,7 +1052,15 @@ const browsingDestination = computed(() => {
                     /></span>
                     {{ t(checkoutStep) }}
                   </p>
-                  <button v-if="!order" type="submit" class="primary-action w-100 mt-3" :disabled="loading || !phoneValid">{{ t(loading ? 'Preparing…' : 'Pay') }}</button>
+                  <button
+                    v-if="!order"
+                    type="submit"
+                    class="primary-action connection-action w-100 mt-3"
+                    :disabled="loading || !phoneValid"
+                  >
+              <span class="connection-action__label">{{ t(loading ? "Preparing…" : "Pay") }}</span>
+              <span class="inline-eye"><SignalEye :status="loading ? 'loading' : portalEyeStatus" /></span>
+            </button>
                   <button
                     v-if="error && order"
                     type="button"
@@ -1073,41 +1110,34 @@ const browsingDestination = computed(() => {
               {{ pushCountdown }}
             </div>
             <button
-              v-if="hostedCheckout ? !hostedPushConfirmed : paymentRequestMissing"
-              class="primary-action"
+              v-if="
+                hostedCheckout ? !hostedPushConfirmed : paymentRequestMissing
+              "
+              class="primary-action connection-action"
               :disabled="loading"
               @click="continuePayment"
             >
-              <span v-if="loading" class="inline-eye"
-                ><SignalEye status="loading"
-              /></span>
-              {{
+              <span class="connection-action__label">{{
                 t(
                   loading
                     ? "Subiri…"
                     : hostedCheckout
                       ? "Continue to payment"
-                    : error || paymentFailed
-                      ? "Jaribu tena"
-                      : "Tuma ombi",
+                      : error || paymentFailed
+                        ? "Jaribu tena"
+                        : "Tuma ombi",
                 )
-              }}
-              <i
-                v-if="!loading"
-                class="bi bi-arrow-right"
-                aria-hidden="true"
-              ></i>
+              }}</span>
+              <span class="inline-eye"><SignalEye :status="loading ? 'loading' : portalEyeStatus" /></span>
             </button>
             <button
               v-else-if="pushSecondsLeft === 0 && !hostedCheckout"
-              class="primary-action"
+              class="primary-action connection-action"
               :disabled="resendBusy"
               @click="resendPush"
             >
-              <span v-if="resendBusy" class="inline-eye"
-                ><SignalEye status="loading"
-              /></span>
-              {{ t(resendBusy ? "Subiri…" : "Tuma tena") }}
+              <span class="connection-action__label">{{ t(resendBusy ? "Subiri…" : "Tuma tena") }}</span>
+              <span class="inline-eye"><SignalEye :status="resendBusy ? 'loading' : portalEyeStatus" /></span>
             </button>
           </section>
 
@@ -1149,14 +1179,12 @@ const browsingDestination = computed(() => {
               }}
             </p>
             <button
-              class="primary-action mt-4"
+              class="primary-action connection-action mt-4"
               :disabled="refreshBusy"
               @click="refresh"
             >
-              <span v-if="refreshBusy" class="inline-eye"
-                ><SignalEye status="loading"
-              /></span>
-              {{ t(refreshBusy ? "Tunakagua…" : "Kagua tena") }}
+              <span class="connection-action__label">{{ t(refreshBusy ? "Tunakagua…" : "Kagua tena") }}</span>
+              <span class="inline-eye"><SignalEye :status="refreshBusy ? 'loading' : portalEyeStatus" /></span>
             </button>
             <p v-if="error" class="portal-alert danger" role="alert">
               {{ t(error) }}
@@ -1184,34 +1212,40 @@ const browsingDestination = computed(() => {
 
             <button
               v-if="isRecoverableConnection"
-              class="primary-action"
+              class="primary-action connection-action"
               :disabled="connectionBusy"
               @click="prepareConnection()"
             >
+              <span class="connection-action__label">
+                {{ t(connectionState === "manual" ? "Connect now" : "Try connection again") }}
+              </span>
               <span v-if="connectionBusy" class="inline-eye"
                 ><SignalEye status="loading"
               /></span>
               <span v-else class="inline-eye"
                 ><SignalEye :status="portalEyeStatus"
               /></span>
-              {{
-                t(
-                  connectionState === "manual"
-                    ? "Connect now"
-                    : "Try connection again",
-                )
-              }}
             </button>
+
+            <SupportAction
+              v-if="order && portalMode === 'buy'"
+              :key="order?.uuid || 'anonymous'"
+              :order-uuid="order?.uuid"
+              :phone="normalizedPhone"
+              :device-mac="deviceMac"
+              :connection-state="connectionState"
+            />
 
             <button
               v-if="
                 connectionState === 'expired' ||
                 connectionState === 'device_mismatch'
               "
-              class="primary-action"
+              class="primary-action connection-action"
               @click="startNewPurchase"
             >
-              {{ t("Buy another package") }}
+              <span class="connection-action__label">{{ t("Buy another package") }}</span>
+              <span class="inline-eye"><SignalEye :status="portalEyeStatus" /></span>
             </button>
 
             <div v-if="order?.voucher" class="voucher-secondary">
@@ -1259,11 +1293,11 @@ const browsingDestination = computed(() => {
             </div>
 
             <a
-              class="primary-action primary-action--link"
+              class="primary-action primary-action--link connection-action"
               :href="browsingDestination"
             >
-              {{ t("Continue browsing") }}
-              <i class="bi bi-arrow-right" aria-hidden="true"></i>
+              <span class="connection-action__label">{{ t("Continue browsing") }}</span>
+              <span class="inline-eye"><SignalEye :status="portalEyeStatus" /></span>
             </a>
 
             <div class="voucher-secondary">
@@ -2267,7 +2301,7 @@ v .plan-option:not(:active):not(:focus-visible) .plan-option__price i {
 }
 .access-shell {
   border-radius: 25px;
-  padding: 14px;
+  padding: 14px 14px 4px;
   background: #e7edf2;
   border: 1px solid #f5f9fb;
   box-shadow:
@@ -2438,7 +2472,7 @@ v .plan-option:not(:active):not(:focus-visible) .plan-option__price i {
     padding: 0 12px;
   }
   .access-shell {
-    padding: 11px;
+    padding: 11px 11px 4px;
   }
   .plan-list {
     gap: 10px;
@@ -2744,6 +2778,63 @@ v .plan-option:not(:active):not(:focus-visible) .plan-option__price i {
   margin-top: 10px;
   min-height: 44px;
   padding: 10px 12px;
+}
+
+.portal-shell .primary-action.connection-action {
+  --connect-fill: #196b97;
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(72px, 1fr);
+  align-items: stretch;
+  gap: 0;
+  min-height: 44px;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid #196b97;
+  border-radius: 20px 16px 16px 20px;
+  background: #e6edf3;
+}
+.portal-shell .primary-action.connection-action:hover,
+.portal-shell .primary-action.connection-action:focus {
+  --connect-fill: #155b82;
+  background: #e6edf3;
+  border-color: #196b97;
+}
+.connection-action__label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 4px 10px;
+  background: var(--connect-fill);
+  border-top-right-radius: 28px;
+  color: #F4F6F9;
+  font-weight: 700;
+  font-size: clamp(0.875rem, 4vw, 1.125rem);
+  text-align: center;
+}
+.connection-action__label::after {
+  content: "";
+  position: absolute;
+  right: -24px;
+  bottom: 0;
+  width: 24px;
+  height: 24px;
+  background: var(--connect-fill);
+}
+.portal-shell .primary-action.connection-action .inline-eye {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  background: #e6edf3;
+  border-bottom-left-radius: 24px;
+}
+.portal-shell .primary-action.connection-action .inline-eye > * {
+  width: 58px;
+  height: 38px;
 }
 .purchase-flow--voucher .voucher-secondary {
   margin-top: 14px;

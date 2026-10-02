@@ -11,9 +11,9 @@ class Payment extends Model
     protected $fillable = [
         'business_id', 'payment_gateway_account_id', 'session_reference', 'checkout_url', 'uuid', 'order_id', 'provider', 'reference', 'external_reference',
         'status', 'amount', 'currency', 'idempotency_key', 'provider_payload',
-        'completed_at', 'failed_reason',
+        'completed_at', 'failed_reason', 'gross_amount', 'fee_amount', 'net_amount', 'settlement_currency',
     ];
-    protected $casts = ['provider_payload' => 'array', 'completed_at' => 'datetime'];
+    protected $casts = ['provider_payload' => 'array', 'completed_at' => 'datetime', 'gross_amount'=>'integer', 'fee_amount'=>'integer', 'net_amount'=>'integer'];
 
     protected $hidden = ['provider_payload'];
     protected static function booted(): void

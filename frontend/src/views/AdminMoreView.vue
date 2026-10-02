@@ -21,6 +21,7 @@ async function logout() {
       <router-link class="btn btn-outline-secondary text-start py-3" to="/admin/sessions">Sessions</router-link>
       <router-link class="btn btn-outline-secondary text-start py-3" to="/admin/router">Router and diagnostics</router-link>
       <router-link v-if="advancedAllowed" class="btn btn-outline-secondary text-start py-3" to="/admin/router/advanced">Advanced Tools</router-link>
+      <router-link class="btn btn-outline-secondary text-start py-3" to="/admin/support">Customer support</router-link>
       <router-link class="btn btn-outline-secondary text-start py-3" to="/admin/logs">Errors</router-link>
     </nav>
     <button class="btn btn-outline-danger mt-4" @click="logout">Sign out</button>

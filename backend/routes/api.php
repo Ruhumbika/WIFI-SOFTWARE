@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/login', [AuthController::class, 'login']);
 
 Route::prefix('public')->group(function () {
+    Route::post('/support', [\App\Http\Controllers\SupportRequestController::class,'store'])->middleware('throttle:support-create');
+    Route::post('/orders/{uuid}/support', [\App\Http\Controllers\SupportRequestController::class,'orderStore'])->middleware('throttle:support-create');
     Route::get('/plans', [PublicPortalController::class, 'plans']);
     Route::post('/orders', [PublicPortalController::class, 'createOrder']);
     Route::post('/orders/{uuid}/pay', [PublicPortalController::class, 'pay']);
@@ -22,6 +24,7 @@ Route::prefix('public')->group(function () {
 });
 
 Route::prefix('public/vouchers')->controller(\App\Http\Controllers\PublicVoucherController::class)->group(function () {
+    Route::post('/{voucher:uuid}/support', [\App\Http\Controllers\SupportRequestController::class,'voucherStore'])->middleware('throttle:support-create');
     Route::post('/redeem','redeem')->middleware('throttle:voucher-redeem');
     Route::post('/recovery/lookup','lookup')->middleware('throttle:voucher-lookup');
     Route::post('/recovery/verify','verify')->middleware('throttle:voucher-verify');
@@ -50,6 +53,10 @@ Route::middleware('admin.token')->prefix('admin')->group(function () {
     Route::get('/router/advanced/access', [AdvancedAccessController::class, 'access'])->middleware('throttle:20,1');
     Route::post('/router/advanced/events', [AdvancedAccessController::class, 'event'])->middleware('throttle:30,1');
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/dashboard/analytics', [AdminController::class, 'analytics']);
+    Route::get('/support', [\App\Http\Controllers\SupportRequestController::class,'index']);
+    Route::get('/support/{supportRequest:uuid}/history', [\App\Http\Controllers\SupportRequestController::class,'history']);
+    Route::patch('/support/{supportRequest:uuid}', [\App\Http\Controllers\SupportRequestController::class,'update']);
     Route::get('/dashboard', [AdminController::class, 'dashboard']);
     Route::get('/logs', [AdminController::class, 'logs']);
     Route::get('/router/health', [AdminController::class, 'routerHealth']);

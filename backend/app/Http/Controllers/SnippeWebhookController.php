@@ -59,12 +59,15 @@ class SnippeWebhookController extends Controller
                 abort_if($actual !== null && $actual !== $expected,422,'Payment metadata does not match.');
             }
             if ($type === 'payment.completed') abort_unless(data_get($event,'data.status') === 'completed',422,'Payment status does not match.');
+            $settlement = $type === 'payment.completed'
+                ? app(\App\Services\PaymentSettlementService::class)->validate($payment, data_get($event,'data.settlement')) : [];
             if (PaymentEvent::where('event_id',$eventId)->exists()) return ['duplicate'=>true];
             if ($payment->status === 'completed') {
                 abort_unless($payment->reference === $reference,422,'Completed payment reference does not match.');
+                if ($settlement) $payment->forceFill($settlement)->save();
             } elseif ($type === 'payment.completed') {
                 $payment->forceFill(['reference'=>$reference,'status'=>'completed','completed_at'=>now(),
-                    'provider_payload'=>['type'=>$type,'reference'=>$reference,'session_reference'=>$session]])->save();
+                    'provider_payload'=>['type'=>$type,'reference'=>$reference,'session_reference'=>$session]] + $settlement)->save();
                 if (!$order->paid_at) {
                     $order->forceFill(['status'=>'paid','paid_at'=>now()])->save();
                     ProvisionPaidOrder::dispatch($order->id)->afterCommit();

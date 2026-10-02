@@ -4,6 +4,7 @@ import AdminShell from "../components/AdminShell.vue";
 import { api } from "../api";
 
 const rows = ref<any[]>([]);
+const search = ref('')
 const loading = ref(true);
 const busyId = ref<number | null>(null);
 const error = ref("");
@@ -14,7 +15,7 @@ let refreshTimer: number | undefined;
 async function load(background = false) {
   if (!background) loading.value = true;
   error.value = "";
-  try { rows.value = (await api.get("/admin/sessions")).data.data; }
+  try { rows.value = (await api.get("/admin/sessions", { params: { search: search.value || undefined } })).data.data; }
   catch { error.value = "Sessions could not be loaded."; }
   finally { loading.value = false; }
 }
@@ -44,7 +45,8 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
 
 <template>
   <AdminShell>
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3"><div><h1 class="h2 mb-0">HotSpot sessions</h1><small class="text-secondary">Session uptime restarts after each login and reflects the last router sync. Package time runs from first login.</small></div><button class="btn btn-outline-primary" :disabled="loading" @click="load()">Refresh</button></div>
+    <div class="mb-3"><h1 class="h2 mb-0">HotSpot sessions</h1><small class="text-secondary">Session uptime restarts after each login and reflects the last router sync. Package time runs from first login.</small></div>
+<section class="admin-list-panel"><form class="admin-list-toolbar" @submit.prevent="load()"><div class="admin-list-search"><input v-model="search" class="form-control" maxlength="100" placeholder="Search sessions…" aria-label="Search sessions"><button aria-label="Search"><i class="bi bi-search"></i></button></div><div class="admin-list-actions"><button type="button" class="btn" @click="load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button></div></form>
     <div v-if="actionError" class="alert alert-warning" role="alert">{{ actionError }}</div>
     <div v-if="notice" class="alert alert-success" role="status">{{ notice }}</div>
     <p v-if="loading" role="status">Loading sessions…</p>
@@ -58,8 +60,8 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
         <div><span class="badge" :class="session.ended_at ? 'text-bg-secondary' : 'text-bg-success'">{{ session.ended_at ? 'Ended' : 'Active' }}</span><button v-if="!session.ended_at" class="btn btn-sm btn-outline-danger mt-2" :disabled="busyId === session.id" @click="disconnect(session)">Block & disconnect</button></div>
       </div>
     </div>
-    <div v-if="!loading && !error && rows.length" class="card p-3 table-responsive d-none d-md-block">
-      <table class="table align-middle mb-0">
+    <div v-if="!loading && !error && rows.length" class="admin-table-shell d-none d-md-block">
+      <table class="admin-data-table">
         <thead>
           <tr>
             <th>Voucher</th>
@@ -93,5 +95,6 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
         </tbody>
       </table>
     </div>
+    </section>
   </AdminShell>
 </template>

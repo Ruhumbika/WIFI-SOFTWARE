@@ -20,17 +20,27 @@ class AdminController extends Controller
 {
     public function dashboard()
     {
+        $analytics = app(\App\Services\PaymentReportingService::class)->analytics('today');
+        $tzs = collect($analytics['totals'])->firstWhere('currency','TZS');
+        $health = app(\App\Services\HotspotSyncHealth::class)->snapshot();
         return [
+            'financial_totals'=>$analytics['totals'],
+            'gross_today'=>$tzs['gross'] ?? 0,
+            'fees_today'=>$tzs['fees'] ?? null,
+            'net_revenue_today'=>$tzs['net'] ?? null,
+            'missing_settlement'=>$tzs['missing_settlement'] ?? 0,
+            'open_support_requests'=>\App\Models\SupportRequest::whereIn('status',['open','contacted'])->count(),
+            'sync_health'=>$health,
             'online' => HotspotSession::whereNull('ended_at')->where('last_seen_at', '>=', now()->subMinutes(2))->count(),
-            'sales_today' => Payment::where('status', 'completed')->whereDate('completed_at', today())->count(),
-            'revenue_today' => Payment::where('status', 'completed')->whereDate('completed_at', today())->sum('amount'),
+            'sales_today' => array_sum(array_column($analytics['totals'],'sales')),
+            'revenue_today' => $tzs['gross'] ?? 0,
             'active_vouchers' => Voucher::where('status', 'active')
                 ->where(fn($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
                 ->count(),
             'pending_provision' => Voucher::where('status', 'provision_pending')->count(),
-            'failed_payments' => Payment::where('status', 'failed')->whereDate('updated_at', today())->count(),
+            'failed_payments' => $analytics['statuses']['failed'] ?? 0,
             'pending_payments' => Payment::where('status', 'pending')->count(),
-            'last_sync' => Voucher::whereNotNull('last_synced_at')->max('last_synced_at'),
+            'last_sync' => $health['last_successful_sync'],
             'recent_payments' => Payment::with('order.plan')->latest()->limit(10)->get(),
         ];
     }
@@ -273,17 +283,24 @@ class AdminController extends Controller
         return response()->json(['recovery_pin'=>app(\App\Services\VoucherRecoveryService::class)->issue($voucher,$data['reset']??false,$request->user()->id)])->header('Cache-Control','no-store');
     }
 
-    public function payments()
+    public function payments(Request $request)
     {
-        return Payment::with('order.plan')->latest()->paginate(50);
+        return app(\App\Services\PaymentReportingService::class)->ledger($request);
+    }
+    public function analytics(Request $request)
+    {
+        $data = $request->validate(['period'=>['nullable',\Illuminate\Validation\Rule::in(['today','7d','30d'])]]);
+        return app(\App\Services\PaymentReportingService::class)->analytics($data['period'] ?? '7d');
     }
     public function orders()
     {
         return Order::with(['plan', 'payments', 'voucher'])->latest()->paginate(50);
     }
-    public function sessions()
+    public function sessions(Request $request)
     {
-        return HotspotSession::with('voucher.plan')->latest('last_seen_at')->paginate(100);
+        $search = $request->validate(['search'=>['nullable','string','max:100']])['search'] ?? '';
+        $term = '%'.str_replace(['!','%','_'],['!!','!%','!_'],$search).'%';
+        return HotspotSession::with('voucher.plan')->when($search !== '', fn ($q) => $q->where(fn ($s) => $s->whereRaw("mac_address LIKE ? ESCAPE '!'",[$term])->orWhereRaw("ip_address LIKE ? ESCAPE '!'",[$term])->orWhereHas('voucher',fn ($v) => $v->whereRaw("code LIKE ? ESCAPE '!'",[$term]))))->latest('last_seen_at')->paginate(100)->withQueryString();
     }
 
     public function disconnectSession(HotspotSession $session, MikrotikRestClient $mikrotik)

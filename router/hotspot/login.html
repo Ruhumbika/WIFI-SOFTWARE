@@ -1,23 +1,33 @@
 <!doctype html>
 <html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MWANAKITAA KITONGA</title>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>MWANAKITAA KITONGA</title>
 
-<script>
-window.location.replace(
-"https://wifi.95-111-248-145.sslip.io/" +
-"?mac=$(mac-esc)" +
-"&link-login-only=$(link-login-only-esc)" +
-"&link-orig=$(link-orig-esc)"
-);
-</script>
-</head>
+    <script>
+      const loginUrl = encodeURIComponent("https://$(hostname)/login");
 
-<body>
-<a href="https://wifi.95-111-248-145.sslip.io/?mac=$(mac-esc)&amp;link-login-only=$(link-login-only-esc)&amp;link-orig=$(link-orig-esc)">
-Continue to MWANAKITAA KITONGA
-</a>
-</body>
+      window.location.replace(
+        "https://wifi.95-111-248-145.sslip.io/" +
+          "?mac=$(mac-esc)" +
+          "&link-login-only=" +
+          loginUrl +
+          "&link-orig=$(link-orig-esc)",
+      );
+    </script>
+  </head>
+
+  <body>
+    <a id="continue" href="#"> Continue to MWANAKITAA KITONGA </a>
+
+    <script>
+      document.getElementById("continue").href =
+        "https://wifi.95-111-248-145.sslip.io/" +
+        "?mac=$(mac-esc)" +
+        "&link-login-only=" +
+        encodeURIComponent("https://$(hostname)/login") +
+        "&link-orig=$(link-orig-esc)";
+    </script>
+  </body>
 </html>

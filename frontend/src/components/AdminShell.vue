@@ -50,6 +50,7 @@ async function logout() {
         <router-link v-if="advancedAllowed" to="/admin/router/advanced"
           ><i class="bi bi-tools"></i><span>Advanced Tools</span></router-link
         >
+        <router-link to="/admin/support"><i class="bi bi-life-preserver"></i><span>Support</span></router-link>
         <router-link to="/admin/logs"
           ><i class="bi bi-journal-text"></i><span>Errors</span></router-link
         >
@@ -125,7 +126,8 @@ async function logout() {
           <router-link v-if="advancedAllowed" to="/admin/router/advanced" @click="moreOpen = false"
             ><i class="bi bi-tools"></i>Advanced Tools</router-link
           >
-          <router-link to="/admin/logs" @click="moreOpen = false"
+          <router-link to="/admin/support" @click="moreOpen = false"><i class="bi bi-life-preserver"></i><span>Support</span></router-link>
+        <router-link to="/admin/logs" @click="moreOpen = false"
             ><i class="bi bi-journal-text"></i>Errors</router-link
           >
           <button class="admin-sheet__logout" @click="logout">

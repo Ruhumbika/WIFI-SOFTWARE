@@ -50,11 +50,70 @@ class RouterSetupTest extends TestCase
         $headers = $this->adminHeaders();
         $this->getJson('/api/admin/router/hotspot-login?portal_url=http%3A%2F%2F127.0.0.1%3A5174', $headers)->assertUnprocessable();
 
-        $this->getJson('/api/admin/router/hotspot-login?portal_url=https%3A%2F%2Fother.example', $headers)->assertUnprocessable();
+        foreach (['https://other.example', 'http://wifi.95-111-248-145.sslip.io',
+            'https://wifi.95-111-248-145.sslip.io.evil.test',
+            'https://wifi.95-111-248-145.sslip.io@evil.test',
+            'https://wifi.95-111-248-145.sslip.io/?next=https://evil.test'] as $untrusted) {
+            $this->getJson('/api/admin/router/hotspot-login?'.http_build_query(['portal_url'=>$untrusted]), $headers)
+                ->assertUnprocessable()->assertJsonValidationErrors('portal_url');
+        }
         $response = $this->get('/api/admin/router/hotspot-login?portal_url=https%3A%2F%2Fwifi.95-111-248-145.sslip.io', $headers)->assertOk();
         $this->assertStringContainsString('filename="login.html"', $response->headers->get('Content-Disposition'));
-        $this->assertStringContainsString('https://wifi.95-111-248-145.sslip.io/?mac=', $response->getContent());
+        $html = $response->getContent();
+        $this->assertSame(file_get_contents(base_path('../router/hotspot/login.html')), $html);
+        $this->assertSame('text/html; charset=UTF-8', $response->headers->get('Content-Type'));
+        $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+        $this->assertHotspotRedirectSemantics($html);
         $this->assertStringNotContainsString('__PORTAL_URL__', $response->getContent());
+    }
+
+    private function assertHotspotRedirectSemantics(string $html): void
+    {
+        $mac = 'AA:BB:CC:DD:EE:FF';
+        $original = 'https://example.test/path?first=1&second=two words';
+        $rendered = str_replace(['$(hostname)', '$(mac-esc)', '$(link-orig-esc)'],
+            ['hgd09sryy9d.sn.mynetname.net', rawurlencode($mac), rawurlencode($original)], $html);
+        $document = new \DOMDocument();
+        $document->loadHTML($rendered);
+        $anchor = (new \DOMXPath($document))->query('//a[@id="continue"]')->item(0);
+        $this->assertNotNull($anchor, 'The manual continuation link must exist.');
+        $this->assertNotSame('', trim($anchor->textContent));
+        $scripts = [];
+        foreach ($document->getElementsByTagName('script') as $script) $scripts[] = $script->textContent;
+
+        // Execute the actual downloaded scripts, rather than assuming a particular string layout.
+        $process = new \Symfony\Component\Process\Process(['node', '-e', <<<'JS'
+const vm = require('node:vm');
+const fs = require('node:fs');
+const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+const anchor = { href: input.href };
+const redirects = [];
+const context = vm.createContext({
+    encodeURIComponent,
+    window: { location: { replace: url => redirects.push(url) } },
+    document: { getElementById: id => id === 'continue' ? anchor : null },
+});
+for (const script of input.scripts) vm.runInContext(script, context, { timeout: 1000 });
+process.stdout.write(JSON.stringify({ redirects, fallback: anchor.href }));
+JS
+        ]);
+        $process->setInput(json_encode(['scripts'=>$scripts,'href'=>$anchor->getAttribute('href')], JSON_THROW_ON_ERROR));
+        $process->setTimeout(10);
+        $process->mustRun();
+        $result = json_decode($process->getOutput(), true, 16, JSON_THROW_ON_ERROR);
+        $this->assertCount(1, $result['redirects'], 'The page must automatically redirect once.');
+        $this->assertSame($result['redirects'][0], $result['fallback'], 'Manual fallback must use the same captive URL.');
+        $parts = parse_url($result['redirects'][0]);
+        $this->assertSame('https', $parts['scheme']);
+        $this->assertSame('wifi.95-111-248-145.sslip.io', $parts['host']);
+        $this->assertSame('/', $parts['path']);
+        foreach (['port','user','pass','fragment'] as $key) $this->assertArrayNotHasKey($key, $parts);
+        parse_str($parts['query'], $query);
+        $this->assertSame([
+            'mac'=>$mac,
+            'link-login-only'=>'https://hgd09sryy9d.sn.mynetname.net/login',
+            'link-orig'=>$original,
+        ], $query);
     }
 
     public function test_router_setup_requires_admin_and_never_returns_password(): void
