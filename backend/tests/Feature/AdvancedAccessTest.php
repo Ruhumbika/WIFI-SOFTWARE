@@ -18,8 +18,7 @@ class AdvancedAccessTest extends TestCase
         $user = User::create([
             'name' => 'Admin', 'email' => Str::random(8).'@example.test', 'password' => 'test-password',
         ]);
-        $user->access_advanced_network_tools = $allowed;
-        $user->save();
+        if ($allowed) $user->permissions()->sync(\App\Models\Permission::where('key', 'router.advanced')->pluck('id'));
         $token = Str::random(40);
         AdminApiToken::create(['user_id' => $user->id, 'token_hash' => hash('sha256', $token)]);
         return ['Authorization' => 'Bearer '.$token, 'X-Client-Platform' => 'Linux'];

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { can } from '../auth/access'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AdminShell from '../components/AdminShell.vue'
@@ -36,6 +37,7 @@ function label(status: string) { return status === 'completed' ? 'Paid' : status
 function statusClass(status: string) { return `payment-status payment-status--${status}` }
 watch(() => route.query, () => { filters.value = paymentQuery(route.query); void load() })
 async function loadPlans() {
+  if (!can('plans.view')) { plans.value=[]; return }
   planError.value=''
   try { plans.value = (await api.get('/admin/plans')).data }
   catch { planError.value='Package filters could not be loaded.' }
@@ -54,7 +56,7 @@ onMounted(() => { void load(); void loadPlans() })
       <label v-if="filters.date === 'custom'">From<input v-model="filters.from" class="form-control" type="date" required></label>
       <label v-if="filters.date === 'custom'">To<input v-model="filters.to" class="form-control" type="date" :min="filters.from" required></label>
       <label>Status<select v-model="filters.status" class="form-select"><option value="">All statuses</option><option v-for="status in ['completed','pending','failed','expired','voided']" :key="status" :value="status">{{ label(status) }}</option></select></label>
-      <label>Package<select v-model="filters.plan_id" class="form-select"><option value="">All packages</option><option v-for="plan in plans" :key="plan.id" :value="String(plan.id)">{{ plan.name }}</option></select></label>
+      <label v-if="can('plans.view')">Package<select v-model="filters.plan_id" class="form-select"><option value="">All packages</option><option v-for="plan in plans" :key="plan.id" :value="String(plan.id)">{{ plan.name }}</option></select></label>
       <button class="btn btn-primary" :disabled="loading">Apply filters</button>
       </div>
     </form>

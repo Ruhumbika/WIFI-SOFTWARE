@@ -14,8 +14,11 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: 'api',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->prependToPriorityList([\Illuminate\Routing\Middleware\ThrottleRequests::class, \Illuminate\Routing\Middleware\SubstituteBindings::class], \App\Http\Middleware\RequireAdminPermission::class);
+        $middleware->prependToPriorityList(\App\Http\Middleware\RequireAdminPermission::class, AdminTokenAuth::class);
         $middleware->alias([
             'admin.token' => AdminTokenAuth::class,
+            'permission' => \App\Http\Middleware\RequireAdminPermission::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

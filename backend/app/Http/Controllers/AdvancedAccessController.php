@@ -16,7 +16,7 @@ class AdvancedAccessController extends Controller
 
     public function permission(Request $request): array
     {
-        return ['allowed' => (bool) $request->user()?->access_advanced_network_tools];
+        return ['allowed' => $request->user()->hasAdminPermission('router.advanced')];
     }
 
     public function access(Request $request, MikrotikRestClient $mikrotik)
@@ -81,7 +81,7 @@ class AdvancedAccessController extends Controller
 
     private function authorizeAccess(Request $request): void
     {
-        abort_unless($request->user()?->access_advanced_network_tools, 403);
+        abort_unless($request->user()->hasAdminPermission('router.advanced'), 403);
     }
 
     private function audit(Request $request, string $action, string $result, ?string $platform = null): void

@@ -19,24 +19,36 @@ const router = createRouter({
   routes: [
     { path: '/', component: PortalView },
 
+    { path: '/admin/users', component: () => import('./views/UsersView.vue'), meta: { admin: true, permission: 'users.view' } },
+    { path: '/admin/forbidden', component: () => import('./views/AccessDeniedView.vue'), meta: { admin: true } },
     { path: '/admin/login', component: AdminLoginView },
-    { path: '/admin', component: DashboardView, meta: { admin: true } },
-    { path: '/admin/plans', component: PlansView, meta: { admin: true } },
-    { path: '/admin/vouchers', component: VouchersView, meta: { admin: true } },
-    { path: '/admin/vouchers/:id', component: VoucherDetailView, meta: { admin: true } },
-    { path: '/admin/support', component: SupportView, meta: { admin: true } },
-    { path: '/admin/payments', component: PaymentsView, meta: { admin: true } },
-    { path: '/admin/sessions', component: SessionsView, meta: { admin: true } },
-    { path: '/admin/router', component: RouterView, meta: { admin: true } },
-    { path: '/admin/router/advanced', component: AdvancedAccessView, meta: { admin: true } },
-    { path: '/admin/logs', component: LogsView, meta: { admin: true } },
+    { path: '/admin', component: DashboardView, meta: { admin: true, permission: 'dashboard.view' } },
+    { path: '/admin/plans', component: PlansView, meta: { admin: true, permission: 'plans.view' } },
+    { path: '/admin/vouchers', component: VouchersView, meta: { admin: true, permission: 'vouchers.view' } },
+    { path: '/admin/vouchers/:id', component: VoucherDetailView, meta: { admin: true, permission: 'vouchers.view' } },
+    { path: '/admin/support', component: SupportView, meta: { admin: true, permission: 'support.view' } },
+    { path: '/admin/payments', component: PaymentsView, meta: { admin: true, permission: 'payments.view' } },
+    { path: '/admin/sessions', component: SessionsView, meta: { admin: true, permission: 'sessions.view' } },
+    { path: '/admin/router', component: RouterView, meta: { admin: true, permission: 'router.view' } },
+    { path: '/admin/router/advanced', component: AdvancedAccessView, meta: { admin: true, permission: 'router.advanced' } },
+    { path: '/admin/logs', component: LogsView, meta: { admin: true, permission: 'logs.view' } },
     { path: '/admin/more', component: AdminMoreView, meta: { admin: true } },
   ],
 })
 
-router.beforeEach((to) => {
-  if (to.meta.admin && !localStorage.getItem('rjay_admin_token')) {
-    return '/admin/login'
+router.beforeEach(async (to) => {
+  if (!to.meta.admin) return
+  if (!localStorage.getItem('rjay_admin_token')) return '/admin/login'
+  const access = await import('./auth/access')
+  try {
+    await access.refreshAccess()
+  } catch (error: any) {
+    if (error.response?.status === 401 || !localStorage.getItem('rjay_admin_token')) return '/admin/login'
+    if (to.path !== '/admin/forbidden') return { path: '/admin/forbidden', query: { reason: 'unavailable' } }
+    return
+  }
+  if (typeof to.meta.permission === 'string' && !access.can(to.meta.permission)) {
+    return { path: '/admin/forbidden', query: { reason: 'denied' } }
   }
 })
 

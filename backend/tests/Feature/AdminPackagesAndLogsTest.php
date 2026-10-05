@@ -18,6 +18,7 @@ class AdminPackagesAndLogsTest extends TestCase
     {
         $token = Str::random(40);
         $user = User::create(['name' => 'Test Admin', 'email' => 'admin@example.test', 'password' => 'test-only']);
+        $user->forceFill(['is_super_user' => true])->save();
         AdminApiToken::create(['user_id' => $user->id, 'token_hash' => hash('sha256', $token), 'expires_at' => now()->addHour()]);
         return ['Authorization' => 'Bearer '.$token];
     }

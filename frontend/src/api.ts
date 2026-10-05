@@ -12,6 +12,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(undefined, (error) => {
   if (error.response?.status === 401 && error.config?.url?.startsWith('/admin/')) {
     localStorage.removeItem('rjay_admin_token')
+    window.dispatchEvent(new Event('rjay-admin-unauthenticated'))
     window.location.assign('/admin/login')
   }
   return Promise.reject(error)

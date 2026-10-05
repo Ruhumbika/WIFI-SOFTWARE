@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { can } from '../auth/access'
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import AdminShell from "../components/AdminShell.vue";
 import SignalEye from "../components/portal/SignalEye.vue";
@@ -101,7 +102,7 @@ async function load() {
   try {
     const [voucherResponse, planResponse] = await Promise.all([
       api.get("/admin/vouchers", { params: { search: search.value || undefined, status: status.value || undefined, plan_id: filterPlan.value || undefined, date: date.value || undefined, page: page.value } }),
-      plans.value.length ? Promise.resolve({ data: plans.value }) : api.get("/admin/plans"),
+      can('plans.view') ? (plans.value.length ? Promise.resolve({ data: plans.value }) : api.get("/admin/plans")) : Promise.resolve({ data: [] }),
     ]);
     rows.value = voucherResponse.data.data;
     selectedIds.value = [];
@@ -159,7 +160,7 @@ onMounted(load);
       <div><h1>Vouchers</h1><span v-if="!loading" class="voucher-total">{{ total }} total</span></div>
 
     </header>
-    <form v-if="showGenerator" id="voucher-generator" class="card voucher-create" @submit.prevent="generate">
+    <form v-if="can('vouchers.manage') && can('plans.view') && showGenerator" id="voucher-generator" class="card voucher-create" @submit.prevent="generate">
       <div class="voucher-create__plan"><label for="generate-plan">Package</label><select id="generate-plan" v-model="planId" class="form-select" required><option v-for="plan in plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option></select></div>
       <div><label for="generate-quantity">Quantity</label><input id="generate-quantity" v-model.number="qty" type="number" min="1" max="100" required class="form-control" /></div>
       <div class="voucher-create__phone"><label for="generate-phone">Phone <span class="text-secondary">(optional)</span></label><input id="generate-phone" :value="registeredPhone" @input="onRegisteredPhoneInput" type="tel" inputmode="numeric" pattern="[0-9 ]*" class="form-control" placeholder="255 7XX XXX XXX" /></div>
@@ -179,7 +180,7 @@ onMounted(load);
         <label class="visually-hidden" for="voucher-search">Search by code, phone or payment reference</label>
         <input id="voucher-search" v-model="search" class="form-control" placeholder="Code or phone" />
         <button class="btn btn-outline-primary" :disabled="loading" aria-label="Search"><i class="bi bi-search" aria-hidden="true"></i></button>
-        </div><div class="admin-list-actions"><button v-if="previewTicket" type="button" class="btn btn-outline-primary" @click="printDialog?.showModal()"><i class="bi bi-printer"></i> Print options</button><button type="button" class="btn btn-outline-primary" :aria-expanded="showGenerator" @click="showGenerator=!showGenerator"><i class="bi bi-plus-lg"></i> {{ showGenerator ? 'Close' : 'Create voucher' }}</button>
+        </div><div class="admin-list-actions"><button v-if="previewTicket" type="button" class="btn btn-outline-primary" @click="printDialog?.showModal()"><i class="bi bi-printer"></i> Print options</button><button v-if="can('vouchers.manage') && can('plans.view')" type="button" class="btn btn-outline-primary" :aria-expanded="showGenerator" @click="showGenerator=!showGenerator"><i class="bi bi-plus-lg"></i> {{ showGenerator ? 'Close' : 'Create voucher' }}</button>
         <button type="button" class="btn btn-outline-secondary" aria-label="Filters" :aria-expanded="showFilters" aria-controls="voucher-filters-extra" @click="showFilters=!showFilters"><i class="bi bi-sliders" aria-hidden="true"></i><span class="filter-label"> Filters</span><span v-if="filterCount" class="filter-count">{{ filterCount }}</span></button>
       </div></div>
       <div v-show="showFilters" id="voucher-filters-extra" class="voucher-filter-grid">
@@ -227,7 +228,7 @@ onMounted(load);
       <div v-for="voucher in rows" :key="voucher.id" class="voucher-ledger__row">
         <div class="voucher-ledger__main"><router-link :to="`/admin/vouchers/${voucher.id}`" class="voucher-code">{{ voucher.code }}</router-link><small>{{ voucher.plan?.name || 'Package unavailable' }}</small><small v-if="displayStatus(voucher) === 'active'">Left: {{ voucherTimeLeft(voucher.expires_at, nowTick) || 'Time unavailable' }}</small></div>
         <span :class="statusClass(voucher)">{{ statusLabel(voucher) }}</span>
-        <div class="voucher-ledger__actions"><label v-if="canPrint(voucher)"><input type="checkbox" :checked="selectedIds.includes(voucher.id)" @change="toggleSelection(voucher.id)" /> Select</label><router-link :to="`/admin/vouchers/${voucher.id}`" class="table-action table-action--view" :aria-label="`View ${voucher.code}`" title="Details"><i class="bi bi-eye"></i></router-link><button type="button" class="table-action table-action--print" :disabled="!canPrint(voucher) || loading" :aria-label="`Print ${voucher.code}`" :title="canPrint(voucher) ? 'Print voucher' : 'Print available when ready'" @click="openVoucherPrint(voucher)"><i class="bi bi-printer-fill"></i></button><button v-if="voucher.status === 'provision_pending'" class="table-action table-action--retry" :aria-label="`Retry ${voucher.code}`" title="Retry" @click="retry(voucher)"><i class="bi bi-arrow-clockwise"></i></button></div>
+        <div class="voucher-ledger__actions"><label v-if="canPrint(voucher)"><input type="checkbox" :checked="selectedIds.includes(voucher.id)" @change="toggleSelection(voucher.id)" /> Select</label><router-link :to="`/admin/vouchers/${voucher.id}`" class="table-action table-action--view" :aria-label="`View ${voucher.code}`" title="Details"><i class="bi bi-eye"></i></router-link><button type="button" class="table-action table-action--print" :disabled="!canPrint(voucher) || loading" :aria-label="`Print ${voucher.code}`" :title="canPrint(voucher) ? 'Print voucher' : 'Print available when ready'" @click="openVoucherPrint(voucher)"><i class="bi bi-printer-fill"></i></button><button v-if="can('vouchers.manage') && voucher.status === 'provision_pending'" class="table-action table-action--retry" :aria-label="`Retry ${voucher.code}`" title="Retry" @click="retry(voucher)"><i class="bi bi-arrow-clockwise"></i></button></div>
       </div>
     </div>
 
@@ -262,7 +263,7 @@ onMounted(load);
             <td>
               <router-link :to="`/admin/vouchers/${voucher.id}`" class="table-action table-action--view" :aria-label="`View ${voucher.code}`" title="Details"><i class="bi bi-eye"></i></router-link><button type="button" class="table-action table-action--print" :disabled="!canPrint(voucher) || loading" :aria-label="`Print ${voucher.code}`" :title="canPrint(voucher) ? 'Print voucher' : 'Print available when ready'" @click="openVoucherPrint(voucher)"><i class="bi bi-printer-fill"></i></button>
               <button
-                v-if="voucher.status === 'provision_pending'"
+                v-if="can('vouchers.manage') && voucher.status === 'provision_pending'"
                 class="table-action table-action--retry"
                 :aria-label="`Retry ${voucher.code}`"
                 title="Retry"

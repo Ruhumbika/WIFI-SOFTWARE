@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { can } from '../auth/access'
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import DashboardAnalytics from "../components/admin/DashboardAnalytics.vue";
 import { paymentMoney, reportingDate } from "../utils/paymentReporting";
@@ -21,7 +22,7 @@ async function load() {
   try {
     const [dashboardResponse, routerResponse] = await Promise.allSettled([
       api.get("/admin/dashboard"),
-      api.get("/admin/router/health"),
+      can('router.view') ? api.get("/admin/router/health") : Promise.resolve(null),
     ]);
 
     if (dashboardResponse.status === "fulfilled") {
@@ -29,11 +30,14 @@ async function load() {
       dashboardUpdated.value = new Date().toISOString();
     }
     else error.value = "Dashboard could not be loaded.";
-    if (routerResponse.status === "fulfilled") {
+    if (!can('router.view')) {
+      routerHealth.value = {};
+      routerUpdated.value = null;
+    } else if (routerResponse.status === "fulfilled" && routerResponse.value) {
       routerHealth.value = routerResponse.value.data;
       routerUpdated.value = new Date().toISOString();
     } else {
-      const response = routerResponse.reason?.response;
+      const response = routerResponse.status === 'rejected' ? routerResponse.reason?.response : undefined;
       if (response?.status === 503 && response.data?.connected === false) {
         routerHealth.value = response.data;
         routerUpdated.value = new Date().toISOString();
@@ -78,21 +82,21 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
     </div>
 
     <nav class="dashboard-actions mb-3" aria-label="Quick actions">
-      <router-link to="/admin/vouchers"><i class="bi bi-ticket-perforated" aria-hidden="true"></i> Vouchers</router-link>
-      <router-link to="/admin/plans"><i class="bi bi-grid" aria-hidden="true"></i> Plans</router-link>
-      <router-link to="/admin/router"><i class="bi bi-router" aria-hidden="true"></i> Router</router-link>
+      <router-link v-if="can('vouchers.view')" to="/admin/vouchers"><i class="bi bi-ticket-perforated" aria-hidden="true"></i> Vouchers</router-link>
+      <router-link v-if="can('plans.view')" to="/admin/plans"><i class="bi bi-grid" aria-hidden="true"></i> Plans</router-link>
+      <router-link v-if="can('router.view')" to="/admin/router"><i class="bi bi-router" aria-hidden="true"></i> Router</router-link>
     </nav>
 
     <p v-if="error" role="alert" class="alert alert-warning py-2">{{ error }} {{ dashboardUpdated ? "Showing previously loaded data." : "Use Refresh to retry." }}</p>
     <p v-if="dashboardUpdated" class="small text-secondary mb-2">Last updated: {{ reportingDate(dashboardUpdated) }}<span v-if="error"> · Out of date</span></p>
     <p v-if="dashboard.missing_settlement" class="alert alert-warning small">{{ dashboard.missing_settlement }} completed payments today have no confirmed settlement. Net revenue is incomplete.</p>
     <div class="dashboard-stats">
-      <router-link to="/admin/sessions" class="dashboard-stat">
+      <router-link v-if="can('sessions.view')" to="/admin/sessions" class="dashboard-stat">
         <span class="dashboard-stat__icon"><i class="bi bi-wifi"></i></span>
         <span class="dashboard-stat__label">Online now</span>
         <strong>{{ count(dashboard.online) }}</strong>
       </router-link>
-      <router-link to="/admin/payments" class="dashboard-stat">
+      <router-link v-if="can('payments.view')" to="/admin/payments" class="dashboard-stat">
         <span class="dashboard-stat__icon"
           ><i class="bi bi-cash-stack"></i
         ></span>
@@ -101,14 +105,14 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
           >{{ dashboardUpdated ? paymentMoney(dashboard.net_revenue_today) : loading ? "Loading…" : "—" }}</strong
         >
       </router-link>
-      <router-link to="/admin/vouchers" class="dashboard-stat">
+      <router-link v-if="can('vouchers.view')" to="/admin/vouchers" class="dashboard-stat">
         <span class="dashboard-stat__icon"
           ><i class="bi bi-ticket-perforated"></i
         ></span>
         <span class="dashboard-stat__label">Active vouchers</span>
         <strong>{{ count(dashboard.active_vouchers) }}</strong>
       </router-link>
-      <router-link
+      <router-link v-if="can('payments.view')"
         to="/admin/payments"
         class="dashboard-stat"
         :class="{ 'has-attention': dashboard.failed_payments > 0 }"
@@ -124,7 +128,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
 
     <DashboardAnalytics />
     <div class="dashboard-grid mt-3">
-      <section class="ops-card system-health">
+      <section v-if="can('router.view')" class="ops-card system-health">
         <div class="ops-card__head">
           <div>
             <h2>Network</h2>
@@ -175,7 +179,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
           </div>
           </div>
         </details>
-        <router-link to="/admin/router" class="card-action"
+        <router-link v-if="can('router.view')" to="/admin/router" class="card-action"
           >Details <i class="bi bi-arrow-right"></i
         ></router-link>
       </section>
@@ -197,13 +201,13 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
           }}</span>
         </div>
         <div v-if="attentionCount" class="attention-list">
-          <router-link v-if="dashboard.open_support_requests" to="/admin/support?status=all"><span class="attention-icon"><i class="bi bi-life-preserver"></i></span><strong>{{ dashboard.open_support_requests }} support requests need attention</strong><i class="bi bi-chevron-right"></i></router-link>
-          <router-link v-if="routerHealth.connected === false" to="/admin/router">
+          <router-link v-if="can('support.view') && (dashboard.open_support_requests)" to="/admin/support?status=all"><span class="attention-icon"><i class="bi bi-life-preserver"></i></span><strong>{{ dashboard.open_support_requests }} support requests need attention</strong><i class="bi bi-chevron-right"></i></router-link>
+          <router-link v-if="can('router.view') && (routerHealth.connected === false)" to="/admin/router">
             <span class="attention-icon"><i class="bi bi-router"></i></span>
             <span><strong>Router unavailable</strong></span>
             <i class="bi bi-chevron-right"></i>
           </router-link>
-          <router-link v-if="dashboard.pending_provision" to="/admin/vouchers?status=pending">
+          <router-link v-if="can('vouchers.view') && (dashboard.pending_provision)" to="/admin/vouchers?status=pending">
             <span class="attention-icon"><i class="bi bi-router"></i></span>
             <span
               ><strong
@@ -214,7 +218,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
             >
             <i class="bi bi-chevron-right"></i>
           </router-link>
-          <router-link v-if="dashboard.failed_payments" to="/admin/payments">
+          <router-link v-if="can('payments.view') && (dashboard.failed_payments)" to="/admin/payments">
             <span class="attention-icon"
               ><i class="bi bi-exclamation-circle"></i
             ></span>

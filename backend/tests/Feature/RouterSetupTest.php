@@ -24,6 +24,7 @@ class RouterSetupTest extends TestCase
             'email' => 'router-admin@example.test',
             'password' => 'test-only-password',
         ]);
+        $user->forceFill(['is_super_user' => true])->save();
         AdminApiToken::create([
             'user_id' => $user->id,
             'token_hash' => hash('sha256', $token),

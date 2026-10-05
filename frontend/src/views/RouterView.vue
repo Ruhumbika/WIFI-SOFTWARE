@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { can } from '../auth/access'
 import { onMounted, ref } from 'vue'
 import AdminShell from '../components/AdminShell.vue'
 import RouterSetupPanel from '../components/RouterSetupPanel.vue'
@@ -75,7 +76,7 @@ onMounted(testConnection)
     <div v-if="error" class="alert alert-warning" role="alert">{{ error }}</div>
     <div v-if="notice" class="alert alert-success" role="status">{{ notice }}</div>
     <p v-if="loading && !health" role="status">Loading router status…</p>
-    <RouterSetupPanel v-else-if="!health?.connected" :connected="false" :router-name="health?.router_name || ''" @saved="testConnection" />
+    <RouterSetupPanel v-else-if="!health?.connected && can('router.manage')" :connected="false" :router-name="health?.router_name || ''" @saved="testConnection" />
     <div v-if="health?.connected" class="row g-3 mt-1">
       <div class="col-12 col-xl-7">
         <section class="card p-3 h-100" aria-label="Router status">
@@ -95,17 +96,17 @@ onMounted(testConnection)
         <section class="card p-3 h-100" aria-label="Router actions">
           <h2 class="h5">Actions</h2>
           <div class="router-actions">
-            <button class="btn btn-primary py-2" :disabled="loading || syncing || !health?.connected" @click="sync">{{ syncing ? 'Syncing…' : 'Sync HotSpot sessions' }}</button>
+            <button v-if="can('router.manage')" class="btn btn-primary py-2" :disabled="loading || syncing || !health?.connected" @click="sync">{{ syncing ? 'Syncing…' : 'Sync HotSpot sessions' }}</button>
             <button class="btn btn-outline-primary py-2" :disabled="loading || syncing" @click="testConnection">Test connection</button>
-            <router-link class="btn btn-outline-secondary py-2" to="/admin/sessions">View active sessions</router-link>
-            <button class="btn btn-outline-secondary py-2" type="button" @click="showCustomerSetup">Set up customer Wi-Fi portal</button>
-            <router-link class="btn btn-outline-secondary py-2" to="/admin/logs">View errors</router-link>
+            <router-link v-if="can('sessions.view')" class="btn btn-outline-secondary py-2" to="/admin/sessions">View active sessions</router-link>
+            <button v-if="can('router.manage')" class="btn btn-outline-secondary py-2" type="button" @click="showCustomerSetup">Set up customer Wi-Fi portal</button>
+            <router-link v-if="can('logs.view')" class="btn btn-outline-secondary py-2" to="/admin/logs">View errors</router-link>
           </div>
         </section>
       </div>
     </div>
-    <RouterCustomizationPanel v-if="!loading" :connected="Boolean(health?.connected)" />
-    <RouterSetupPanel v-if="health?.connected" :connected="true" :router-name="health?.router_name || ''" @saved="testConnection" />
+    <RouterCustomizationPanel v-if="can('router.manage') && (!loading)" :connected="Boolean(health?.connected)" />
+    <RouterSetupPanel v-if="can('router.manage') && (health?.connected)" :connected="true" :router-name="health?.router_name || ''" @saved="testConnection" />
     <details class="card p-3 mt-3" aria-label="Router diagnostics">
       <summary class="fw-semibold">Troubleshooting and diagnostics</summary>
       <button class="btn btn-outline-secondary" :disabled="diagnosticsLoading" @click="runDiagnostics">{{ diagnosticsLoading ? 'Checking…' : 'Run diagnostics' }}</button>

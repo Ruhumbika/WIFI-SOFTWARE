@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { can } from '../auth/access'
 import { onMounted, onUnmounted, ref } from "vue";
 import AdminShell from "../components/AdminShell.vue";
 import { api } from "../api";
@@ -57,7 +58,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
       <div v-for="session in rows" :key="session.id" class="mobile-ledger__row">
         <div><strong>{{ session.voucher?.code }}</strong><br><small>{{ session.ip_address }}</small><br><small class="text-break">{{ session.mac_address }}</small><br><small>Synced: {{ session.last_seen_at }}</small></div>
         <span>{{ session.uptime }}</span>
-        <div><span class="badge" :class="session.ended_at ? 'text-bg-secondary' : 'text-bg-success'">{{ session.ended_at ? 'Ended' : 'Active' }}</span><button v-if="!session.ended_at" class="btn btn-sm btn-outline-danger mt-2" :disabled="busyId === session.id" @click="disconnect(session)">Block & disconnect</button></div>
+        <div><span class="badge" :class="session.ended_at ? 'text-bg-secondary' : 'text-bg-success'">{{ session.ended_at ? 'Ended' : 'Active' }}</span><button v-if="can('sessions.disconnect') && (!session.ended_at)" class="btn btn-sm btn-outline-danger mt-2" :disabled="busyId === session.id" @click="disconnect(session)">Block & disconnect</button></div>
       </div>
     </div>
     <div v-if="!loading && !error && rows.length" class="admin-table-shell d-none d-md-block">
@@ -82,8 +83,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); });
             <td>{{ session.last_seen_at }}</td>
             <td><span class="badge" :class="session.ended_at ? 'text-bg-secondary' : 'text-bg-success'">{{ session.ended_at ? 'Ended' : 'Active' }}</span></td>
             <td>
-              <button
-                v-if="!session.ended_at"
+              <button v-if="can('sessions.disconnect') && (!session.ended_at)"
                 class="btn btn-sm btn-outline-danger"
                 :disabled="busyId === session.id"
                 @click="disconnect(session)"

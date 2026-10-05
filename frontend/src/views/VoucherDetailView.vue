@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { can } from '../auth/access'
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AdminShell from '../components/AdminShell.vue'
@@ -102,7 +103,7 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
             <p><strong>Provisioned:</strong> {{ formatDate(voucher.provisioned_at, 'Pending') }}</p>
             <p><strong>First login:</strong> {{ formatDate(voucher.activated_at, 'Not yet') }}</p>
             <p><strong>Expiry:</strong> {{ formatDate(voucher.expires_at, 'Not yet started') }}</p>
-            <p v-if="voucher.status === 'active'"><strong>Package time left:</strong> {{ voucherTimeLeft(voucher.expires_at, nowTick) || 'Unavailable' }}<span v-if="displayStatus === 'expired'"> · awaiting sync</span></p>
+            <p v-if="voucher.status === 'active'"><strong>Package time left:</strong> {{ voucherTimeLeft(voucher.expires_at, nowTick) || 'Unavailable' }}<span v-if="can('vouchers.manage') && displayStatus === 'expired'"> · awaiting sync</span></p>
             <p><strong>Total online time:</strong> {{ voucher.router_total_uptime || 'Unavailable' }}<small v-if="voucher.router_checked_at" class="d-block text-secondary">Router checked {{ formatDate(voucher.router_checked_at) }}</small></p>
             <p><strong>Current session uptime:</strong> {{ voucher.sessions?.find((session: any) => !session.ended_at)?.uptime || 'No active session recorded' }}</p>
             <p><strong>Session last synced:</strong> {{ formatDate(voucher.sessions?.find((session: any) => !session.ended_at)?.last_seen_at, 'Not active') }}</p>
@@ -128,27 +129,27 @@ onUnmounted(() => { window.removeEventListener('afterprint', finishPrint); if (c
             <div v-if="recoveryPin" class="alert alert-warning"><strong>Recovery PIN: {{ recoveryPin }}</strong><p>Hand this to the owner now. It will not be shown again.</p><button class="btn btn-outline-dark" @click="recoveryPin=''">Handed over</button></div>
             <div v-if="pendingTransfer" class="alert alert-info">
               <p>Transfer requested {{ formatDate(pendingTransfer.requested_at) }}. {{ pendingTransfer.reason }}</p>
-              <button class="btn btn-primary me-2" :disabled="busy" @click="action('transfer/approve')">Approve transfer</button>
-              <button class="btn btn-outline-danger" :disabled="busy" @click="action('transfer/reject')">Reject transfer</button>
+              <button v-if="can('vouchers.manage')" class="btn btn-primary me-2" :disabled="busy" @click="action('transfer/approve')">Approve transfer</button>
+              <button v-if="can('vouchers.manage')" class="btn btn-outline-danger" :disabled="busy" @click="action('transfer/reject')">Reject transfer</button>
             </div>
             <div class="d-flex flex-wrap gap-2">
-              <button v-if="voucher.device_mac && canPrint" class="btn btn-outline-warning" :disabled="busy" @click="action('release-device')">Release device</button>
-              <button v-if="canPrint" class="btn btn-outline-danger" :disabled="busy" @click="action('rotate-credentials')">Rotate voucher PIN</button>
-              <button v-if="voucher.customer_phone" class="btn btn-outline-primary" :disabled="busy || !!recoveryPin" @click="action('recovery-pin')">{{ voucher.recovery_pin_issued_at ? 'Reset recovery PIN' : 'Issue recovery PIN' }}</button>
+              <button v-if="can('vouchers.manage') && (voucher.device_mac && canPrint)" class="btn btn-outline-warning" :disabled="busy" @click="action('release-device')">Release device</button>
+              <button v-if="can('vouchers.manage') && (canPrint)" class="btn btn-outline-danger" :disabled="busy" @click="action('rotate-credentials')">Rotate voucher PIN</button>
+              <button v-if="can('vouchers.manage') && (voucher.customer_phone)" class="btn btn-outline-primary" :disabled="busy || !!recoveryPin" @click="action('recovery-pin')">{{ voucher.recovery_pin_issued_at ? 'Reset recovery PIN' : 'Issue recovery PIN' }}</button>
             </div>
             <div v-for="op in security.operations.filter((item: any) => item.state !== 'completed')" :key="op.id" class="alert alert-warning mt-3">
               Router operation needs reconciliation. Retry to confirm completion.
-              <button class="btn btn-outline-dark" :disabled="busy" @click="action(op.action === 'rotate' ? 'rotate-credentials' : (op.transfer_request_id ? 'transfer/approve' : 'release-device'), op.request_key)">Retry operation</button>
+              <button v-if="can('vouchers.manage')" class="btn btn-outline-dark" :disabled="busy" @click="action(op.action === 'rotate' ? 'rotate-credentials' : (op.transfer_request_id ? 'transfer/approve' : 'release-device'), op.request_key)">Retry operation</button>
             </div>
             <details class="mt-3"><summary>Recent security events</summary><p v-if="!security.events.length">No events recorded.</p><ul><li v-for="event in security.events" :key="event.id">{{ event.event_type.replaceAll('_',' ') }} · {{ formatDate(event.occurred_at) }}<span v-if="event.attempted_mac"> · {{ event.attempted_mac }}</span></li></ul></details>
           </details>
           <div class="d-flex flex-wrap gap-2">
-            <button v-if="voucher.status === 'provision_pending'" class="btn btn-primary" :disabled="busy" @click="retry">Retry provisioning</button>
-            <button v-if="canPrint" class="btn btn-outline-danger" :disabled="busy" @click="disable">Disable voucher</button>
+            <button v-if="can('vouchers.manage') && (voucher.status === 'provision_pending')" class="btn btn-primary" :disabled="busy" @click="retry">Retry provisioning</button>
+            <button v-if="can('vouchers.manage') && (canPrint)" class="btn btn-outline-danger" :disabled="busy" @click="disable">Disable voucher</button>
             <select v-if="canPrint" v-model="printTemplate" class="form-select w-auto" aria-label="Ticket template"><option value="cards">A4 · 30 tickets</option><option value="thermal">58 mm receipt</option></select>
             <button v-if="canPrint" class="btn btn-outline-secondary" @click="printVoucher">Print ticket</button>
-            <router-link v-if="voucher.status === 'active'" class="btn btn-outline-secondary" to="/admin/sessions">View sessions</router-link>
-            <button v-if="displayStatus === 'expired'" class="btn btn-outline-primary" @click="router.push('/admin/vouchers')">Generate new voucher</button>
+            <router-link v-if="can('sessions.view') && (voucher.status === 'active')" class="btn btn-outline-secondary" to="/admin/sessions">View sessions</router-link>
+            <button v-if="can('vouchers.manage') && displayStatus === 'expired'" class="btn btn-outline-primary" @click="router.push('/admin/vouchers')">Generate new voucher</button>
           </div>
           <details v-if="voucher.provision_error" class="mt-3"><summary>Provisioning details</summary><pre class="text-wrap">{{ voucher.provision_error }}</pre></details>
         </div>

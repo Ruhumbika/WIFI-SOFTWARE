@@ -17,14 +17,12 @@ class RouterSetupController extends Controller
 {
     public function customerWifi(Request $request, CustomerWifiService $wifi)
     {
-        $this->authorizeCustomization($request);
         try { return ['interfaces' => $wifi->options()]; }
         catch (Throwable) { return response()->json(['message' => 'Customer Wi-Fi settings could not be read from the router.'], 503); }
     }
 
     public function renameCustomerWifi(Request $request, CustomerWifiService $wifi)
     {
-        $this->authorizeCustomization($request);
         $data = $request->validate([
             'interface' => ['required', 'string', 'max:64', 'not_regex:/[\r\n]/'],
             'driver' => ['required', 'in:legacy,wifi'],
@@ -44,7 +42,6 @@ class RouterSetupController extends Controller
 
     public function naming(Request $request): array
     {
-        $this->authorizeCustomization($request);
         return [
             'profile_prefix' => config('mikrotik.profile_prefix'),
             'voucher_prefix' => config('mikrotik.voucher_prefix'),
@@ -53,7 +50,6 @@ class RouterSetupController extends Controller
 
     public function saveNaming(Request $request, RouterEnvironment $environment)
     {
-        $this->authorizeCustomization($request);
         $data = $request->validate([
             'profile_prefix' => ['required', 'string', 'regex:/^[A-Z][A-Z0-9_-]{1,15}$/'],
             'voucher_prefix' => ['required', 'string', 'regex:/^[A-Z][A-Z0-9_-]{1,15}$/'],
@@ -79,11 +75,6 @@ class RouterSetupController extends Controller
             return response()->json(['message' => 'Prefixes were saved, but application workers must be restarted before new vouchers are issued.'], 202);
         }
         return ['message' => 'Prefixes saved for new profiles and vouchers.', ...$data];
-    }
-
-    private function authorizeCustomization(Request $request): void
-    {
-        abort_unless($request->user()?->access_advanced_network_tools, 403);
     }
 
     public function uplinkStatus(RouterUplinkService $uplink, MikrotikRestClient $mikrotik)

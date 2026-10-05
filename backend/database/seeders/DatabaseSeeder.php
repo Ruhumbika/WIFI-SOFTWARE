@@ -17,10 +17,19 @@ class DatabaseSeeder extends Seeder
         if (!$email || !$password) {
             throw new \RuntimeException('ADMIN_EMAIL and ADMIN_PASSWORD must be set before seeding.');
         }
-        User::firstOrCreate(['email'=>$email], [
+        foreach (\App\Support\AdminPermissions::catalog() as $permission) {
+            \App\Models\Permission::firstOrCreate(['key' => $permission['key']], $permission);
+        }
+        $bootstrap = !User::query()->exists();
+        $admin = User::firstOrCreate(['email'=>$email], [
             'name'=>'RJAY Hotspot Admin',
             'password'=>Hash::make($password),
         ]);
+
+        if ($bootstrap && $admin->wasRecentlyCreated) {
+            $admin->is_super_user = true;
+            $admin->save();
+        }
 
         if (Plan::query()->exists()) return;
 

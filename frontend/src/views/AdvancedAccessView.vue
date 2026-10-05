@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { can } from '../auth/access'
 import { computed, onMounted, ref } from 'vue'
 import AdminShell from '../components/AdminShell.vue'
 import { api } from '../api'
@@ -24,7 +25,7 @@ const webfig = computed(() => access.value?.webfig_url)
 async function load() {
   loading.value = true; error.value = ''
   try {
-    allowed.value = (await api.get<{ allowed: boolean }>('/admin/router/advanced/permission')).data.allowed
+    allowed.value = can('router.advanced')
     if (!allowed.value) { error.value = 'Advanced Tools access is not available for this account.'; return }
     const response = await api.get<Access>('/admin/router/advanced/access', { headers: { 'X-Client-Platform': platform.value.family } })
     access.value = response.data
@@ -56,7 +57,7 @@ onMounted(async () => { platform.value = await detectPlatform(); await load() })
 
 <template>
   <AdminShell>
-    <div class="d-flex justify-content-between flex-wrap gap-2 mb-3"><div><h1 class="h2">Advanced Tools</h1><p class="text-secondary">Direct MikroTik management for experienced administrators.</p></div><router-link class="btn btn-outline-secondary align-self-start" to="/admin/router">Diagnostics</router-link></div>
+    <div class="d-flex justify-content-between flex-wrap gap-2 mb-3"><div><h1 class="h2">Advanced Tools</h1><p class="text-secondary">Direct MikroTik management for experienced administrators.</p></div><router-link v-if="can('router.view')" class="btn btn-outline-secondary align-self-start" to="/admin/router">Diagnostics</router-link></div>
     <p v-if="loading" role="status">Loading advanced access…</p>
     <div v-if="error" class="alert alert-warning" role="alert">{{ error }} <button v-if="allowed" class="btn btn-sm btn-outline-dark ms-2" @click="load">Retry</button></div>
     <div v-if="notice" class="alert alert-info" role="status">{{ notice }}</div>
@@ -71,12 +72,12 @@ onMounted(async () => { platform.value = await detectPlatform(); await load() })
         </dl></section></div>
         <div class="col-12 col-lg-6"><section class="card p-3 h-100"><h2 class="h5">Management services</h2><div v-for="name in ['winbox','www-ssl','www','ssh','api','api-ssl']" :key="name" class="d-flex justify-content-between border-top py-2"><span>{{ name === 'www-ssl' ? 'WebFig HTTPS' : name === 'www' ? 'WebFig HTTP' : name.toUpperCase() }}</span><span>{{ access.services?.[name]?.enabled ? `Enabled · Port ${access.services[name].port ?? 'unknown'}` : 'Disabled / unavailable' }}</span></div></section></div>
         <div class="col-12 col-lg-6"><section class="card p-3 h-100"><h2 class="h5">WinBox for {{ platform.family }}</h2><p v-if="platform.mobile" class="text-secondary">For full WinBox administration, use a Windows, Linux, or macOS computer.</p><template v-else><p>Service: {{ winbox?.enabled ? 'Enabled' : 'Disabled / unavailable' }}<br>Address: {{ access.router.management_address || 'Unavailable' }}<br>Port: {{ winbox?.port ?? 'Unavailable' }}<br>Username: {{ access.username || 'Unavailable' }}</p><p v-if="winbox?.allowed_addresses">Allowed networks: {{ winbox.allowed_addresses }}</p><button class="btn btn-primary me-2 mb-2" :disabled="!winbox?.enabled || !winbox.port || !access.router.management_address" @click="openWinbox">Open WinBox</button></template><a class="btn btn-outline-primary me-2 mb-2" :href="downloadUrl" target="_blank" rel="noopener noreferrer" @click="download">Download from MikroTik</a><button class="btn btn-outline-secondary mb-2" :disabled="!access.router.management_address" @click="copy(access.router.management_address)">Copy router address</button><p class="small text-secondary mb-0">WinBox opens manually on this device. Enter your MikroTik password inside WinBox.</p></section></div>
-        <div class="col-12 col-lg-6"><section class="card p-3 h-100"><h2 class="h5">WebFig</h2><p>Browser-based MikroTik administration.</p><p v-if="!webfig" class="text-secondary">WebFig HTTPS is unavailable on this router.</p><a v-if="webfig" class="btn btn-primary me-2" :href="webfig" target="_blank" rel="noopener noreferrer" @click="openWebfig">Open WebFig</a><router-link class="btn btn-outline-secondary" to="/admin/router">Run diagnostics</router-link></section></div>
+        <div class="col-12 col-lg-6"><section class="card p-3 h-100"><h2 class="h5">WebFig</h2><p>Browser-based MikroTik administration.</p><p v-if="!webfig" class="text-secondary">WebFig HTTPS is unavailable on this router.</p><a v-if="webfig" class="btn btn-primary me-2" :href="webfig" target="_blank" rel="noopener noreferrer" @click="openWebfig">Open WebFig</a><router-link v-if="can('router.view')" class="btn btn-outline-secondary" to="/admin/router">Run diagnostics</router-link></section></div>
         <div class="col-12"><section class="card p-3"><h2 class="h5">Technical router information</h2><p class="mb-0">RouterOS: {{ access.technical?.routeros_version || 'Unavailable' }} · Board: {{ access.technical?.board || 'Unavailable' }} · Architecture: {{ access.technical?.architecture || 'Unavailable' }}</p></section></div>
       </div>
       <section v-if="assistant" class="card p-3 mt-3" role="dialog" aria-label="Open MikroTik with WinBox"><h2 class="h5">Open MikroTik with WinBox</h2><p>Router: {{ access.router.management_address }}<br>Port: {{ winbox?.port }}<br>Username: {{ access.username }}</p><ol><li>Open WinBox.</li><li>Enter the router address and port shown above.</li><li>Enter your MikroTik credentials.</li><li>Select Connect.</li></ol><div><button class="btn btn-outline-primary me-2 mb-2" @click="copy(access.router.management_address)">Copy router address</button><button class="btn btn-outline-primary me-2 mb-2" @click="copy(access.username)">Copy username</button><button class="btn btn-outline-secondary mb-2" @click="assistant = false">Close</button></div></section>
     </template>
-    <div v-if="warning" class="modal-backdrop-custom" role="dialog" aria-modal="true" aria-label="Advanced Router Management"><div class="card p-4 shadow" style="max-width:480px"><h2 class="h5">Advanced Router Management</h2><p>Changes made through WinBox or WebFig affect the network directly and may disconnect customers or make the router unreachable.</p><div class="d-flex gap-2"><router-link class="btn btn-outline-secondary" to="/admin/router">Cancel</router-link><button class="btn btn-primary" @click="continueAccess">Continue to Advanced Tools</button></div></div></div>
+    <div v-if="warning" class="modal-backdrop-custom" role="dialog" aria-modal="true" aria-label="Advanced Router Management"><div class="card p-4 shadow" style="max-width:480px"><h2 class="h5">Advanced Router Management</h2><p>Changes made through WinBox or WebFig affect the network directly and may disconnect customers or make the router unreachable.</p><div class="d-flex gap-2"><router-link v-if="can('router.view')" class="btn btn-outline-secondary" to="/admin/router">Cancel</router-link><button class="btn btn-primary" @click="continueAccess">Continue to Advanced Tools</button></div></div></div>
   </AdminShell>
 </template>
 

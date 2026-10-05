@@ -30,7 +30,7 @@ test('chart loads only aggregated API for selected period',async()=>{
   assert.equal(sent.path,'/admin/dashboard/analytics');assert.equal(sent.options.params.period,'30d');assert.equal(ctx.analytics.value,aggregated);
 });
 test('router failure does not erase dashboard financial data',async()=>{
-  const dashboard={sales_today:3,net_revenue_today:1470};const ctx=vm.createContext({Promise,Date,loading:{value:false},error:{value:''},routerError:{value:''},dashboardUpdated:{value:null},routerUpdated:{value:null},dashboard:{value:{}},routerHealth:{value:{}},api:{get:async path=>{if(path==='/admin/router/health')throw new Error('offline');return {data:dashboard}}}});
+  const dashboard={sales_today:3,net_revenue_today:1470};const ctx=vm.createContext({can:()=>true,Promise,Date,loading:{value:false},error:{value:''},routerError:{value:''},dashboardUpdated:{value:null},routerUpdated:{value:null},dashboard:{value:{}},routerHealth:{value:{}},api:{get:async path=>{if(path==='/admin/router/health')throw new Error('offline');return {data:dashboard}}}});
   vm.runInContext(handlers('../src/views/DashboardView.vue',['load']),ctx);await ctx.load();assert.equal(ctx.dashboard.value.net_revenue_today,1470);assert.equal(ctx.routerHealth.value.connected,undefined);assert.ok(ctx.routerError.value);
 });
 function support(props={}) {
@@ -55,6 +55,6 @@ test('support success renders concise confirmation without another button',async
 test('ledger renders both compact mobile and desktop layouts with honest settlement fields',async()=>{
   const s=source('../src/views/PaymentsView.vue');const template=s.slice(s.indexOf('<template>')+10,s.lastIndexOf('</template>'));
   const payment={id:1,amount:500,currency:'TZS',status:'completed',net_amount:null,fee_amount:null,completed_at:'2026-10-02T12:00:00Z',order:{plan:{name:'Hour'},customer_phone:'255712345678'}};
-  const html=await renderToString(createSSRApp({template,components:{AdminShell:{template:'<main><slot/></main>'}},setup:()=>({filters:{},showFilters:false,filterCount:0,plans:[],planError:'',loading:false,error:'',page:{data:[payment],current_page:1,last_page:1,total:1},paymentGroups:[{phone:'255712345678',payments:[payment]}],apply(){},label:s=>s,statusClass:s=>`payment-status--${s}`,paymentMoney:(v)=>v===null ? 'Unavailable' : String(v),paymentTime:p=>p.completed_at,reportingDate:s=>s})}));
+  const html=await renderToString(createSSRApp({template,components:{AdminShell:{template:'<main><slot/></main>'}},setup:()=>({can:()=>true,filters:{},showFilters:false,filterCount:0,plans:[],planError:'',loading:false,error:'',page:{data:[payment],current_page:1,last_page:1,total:1},paymentGroups:[{phone:'255712345678',payments:[payment]}],apply(){},label:s=>s,statusClass:s=>`payment-status--${s}`,paymentMoney:(v)=>v===null ? 'Unavailable' : String(v),paymentTime:p=>p.completed_at,reportingDate:s=>s})}));
   assert.ok(html.includes('d-md-none'));assert.ok(html.includes('d-none d-md-block'));assert.ok(html.includes('Net received'));assert.ok(html.includes('Unavailable'));assert.ok(html.includes('Hour'));
 });

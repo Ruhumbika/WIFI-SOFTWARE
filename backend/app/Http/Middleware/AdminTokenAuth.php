@@ -20,7 +20,7 @@ class AdminTokenAuth
             ->where('token_hash', hash('sha256', $plain))
             ->first();
 
-        if (!$token || ($token->expires_at && $token->expires_at->isPast())) {
+        if (!$token || !$token->user || !$token->user->is_active || ($token->expires_at && $token->expires_at->isPast())) {
             return response()->json(['message' => 'Invalid or expired token'], 401);
         }
 

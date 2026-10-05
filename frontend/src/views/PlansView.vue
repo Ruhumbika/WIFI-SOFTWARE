@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { can } from '../auth/access'
 import { computed, onMounted, ref } from 'vue'
 import AdminShell from '../components/AdminShell.vue'
 import { api } from '../api'
@@ -163,7 +164,7 @@ onMounted(load)
       <div class="col-12" :class="showForm ? 'col-xl-7' : ''">
         <section class="admin-list-panel">
           <div class="d-flex justify-content-between align-items-center mb-3"><h2 class="h5 mb-0">Current packages</h2><span class="badge text-bg-secondary">{{ activeCount }} active</span></div>
-          <div class="admin-list-toolbar"><div class="admin-list-search"><input v-model="search" class="form-control" placeholder="Search packages…" aria-label="Search packages"><button type="button" aria-label="Search"><i class="bi bi-search"></i></button></div><div class="admin-list-actions"><button class="btn" @click="openCreate"><i class="bi bi-plus-lg me-1"></i>New package</button><router-link class="btn" to="/admin/router"><i class="bi bi-router me-1"></i>Router status</router-link><button class="btn" :disabled="loading" @click="load"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button></div></div>
+          <div class="admin-list-toolbar"><div class="admin-list-search"><input v-model="search" class="form-control" placeholder="Search packages…" aria-label="Search packages"><button type="button" aria-label="Search"><i class="bi bi-search"></i></button></div><div class="admin-list-actions"><button v-if="can('plans.manage')" class="btn" @click="openCreate"><i class="bi bi-plus-lg me-1"></i>New package</button><router-link v-if="can('router.view')" class="btn" to="/admin/router"><i class="bi bi-router me-1"></i>Router status</router-link><button class="btn" :disabled="loading" @click="load"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button></div></div>
           <p v-if="loading" role="status">Loading packages…</p>
           <p v-else-if="!plans.length" class="text-secondary mb-0">No packages yet.</p>
           <div v-else class="mobile-ledger d-md-none" aria-label="Current packages">
@@ -171,7 +172,7 @@ onMounted(load)
             <div v-for="plan in filteredPlans" :key="plan.id" class="mobile-ledger__row">
               <div><strong>{{ plan.name }}</strong><br><small>{{ plan.data_limit_bytes ? `${(plan.data_limit_bytes / 1048576).toLocaleString()} MB · ` : '' }}{{ durationLabel(plan.duration_seconds) }} · {{ speedLabel(plan.rate_limit) }}</small><br><small>Profile: {{ plan.mikrotik_profile_name }}</small><br><span v-if="plan.recommended" class="badge text-bg-warning">Recommended</span> <span class="badge" :class="plan.active ? 'text-bg-success' : 'text-bg-secondary'">{{ plan.active ? 'Active' : 'Inactive' }}</span></div>
               <strong class="price">TZS {{ Number(plan.price).toLocaleString() }}</strong>
-              <div><button class="btn btn-sm btn-outline-primary mb-1" :disabled="saving" @click="startEdit(plan)">Edit</button><button class="btn btn-sm" :class="plan.active ? 'btn-outline-danger' : 'btn-outline-success'" :disabled="saving" @click="toggleActive(plan)">{{ plan.active ? 'Deactivate' : 'Reactivate' }}</button></div>
+              <div><button v-if="can('plans.manage')" class="btn btn-sm btn-outline-primary mb-1" :disabled="saving" @click="startEdit(plan)">Edit</button><button v-if="can('plans.manage')" class="btn btn-sm" :class="plan.active ? 'btn-outline-danger' : 'btn-outline-success'" :disabled="saving" @click="toggleActive(plan)">{{ plan.active ? 'Deactivate' : 'Reactivate' }}</button></div>
             </div>
           </div>
           <div v-if="plans.length" class="admin-table-shell d-none d-md-block">
@@ -184,13 +185,13 @@ onMounted(load)
                 <td class="text-nowrap">{{ speedLabel(plan.rate_limit) }}</td>
                 <td><code>{{ plan.mikrotik_profile_name }}</code></td>
                 <td><span class="badge" :class="plan.active ? 'text-bg-success' : 'text-bg-secondary'">{{ plan.active ? 'Active' : 'Inactive' }}</span></td>
-                <td class="text-nowrap"><button class="btn btn-sm btn-outline-primary me-1" :disabled="saving" @click="startEdit(plan)">Edit</button><button class="btn btn-sm" :class="plan.active ? 'btn-outline-danger' : 'btn-outline-success'" :disabled="saving" @click="toggleActive(plan)">{{ plan.active ? 'Deactivate' : 'Reactivate' }}</button></td>
+                <td class="text-nowrap"><button v-if="can('plans.manage')" class="btn btn-sm btn-outline-primary me-1" :disabled="saving" @click="startEdit(plan)">Edit</button><button v-if="can('plans.manage')" class="btn btn-sm" :class="plan.active ? 'btn-outline-danger' : 'btn-outline-success'" :disabled="saving" @click="toggleActive(plan)">{{ plan.active ? 'Deactivate' : 'Reactivate' }}</button></td>
               </tr></tbody>
             </table>
           </div>
         </section>
       </div>
-      <div v-if="showForm" class="col-12 col-xl-5">
+      <div v-if="can('plans.manage') && showForm" class="col-12 col-xl-5">
         <section class="card package-form-card">
           <div class="d-flex justify-content-between align-items-center"><h2 class="h5 mb-0">{{ editingId === null ? 'New package' : 'Edit package' }}</h2><button class="btn btn-sm btn-outline-secondary" type="button" @click="cancelEdit"><i class="bi bi-x-lg me-1"></i>Cancel</button></div>
           <p class="text-secondary small">{{ hasHistory ? 'This package has orders or vouchers. Its code, duration and speed are locked.' : 'Set the package customers will see when buying internet access.' }}</p>

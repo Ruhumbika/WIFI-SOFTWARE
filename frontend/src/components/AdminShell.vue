@@ -1,25 +1,19 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { useRouter } from "vue-router";
-import { api } from "../api";
+import { can, logout as endSession } from "../auth/access";
 
 const router = useRouter();
 const moreOpen = ref(false);
-const advancedAllowed = ref(false);
-onMounted(async () => {
+
+onMounted(() => {
   document.documentElement.classList.add("admin-page");
-  try { advancedAllowed.value = (await api.get('/admin/router/advanced/permission')).data.allowed === true }
-  catch { advancedAllowed.value = false }
 });
 
 onBeforeUnmount(() => document.documentElement.classList.remove("admin-page"));
 
 async function logout() {
-  try {
-    await api.post("/admin/logout");
-  } catch {}
-  localStorage.removeItem("rjay_admin_token");
-  router.push("/admin/login");
+  try { await endSession() } finally { router.push('/admin/login') }
 }
 </script>
 
@@ -28,30 +22,31 @@ async function logout() {
     <aside class="admin-sidebar d-none d-lg-flex">
       <div class="brand admin-brand">RJAY Hotspot</div>
       <nav class="admin-nav" aria-label="Admin navigation">
-        <router-link to="/admin" exact
+        <router-link v-if="can('users.view')" to="/admin/users"><i class="bi bi-people"></i><span>Users</span></router-link>
+        <router-link v-if="can('dashboard.view')" to="/admin" exact
           ><i class="bi bi-grid"></i><span>Dashboard</span></router-link
         >
-        <router-link to="/admin/plans"
+        <router-link v-if="can('plans.view')" to="/admin/plans"
           ><i class="bi bi-box"></i><span>Packages</span></router-link
         >
-        <router-link to="/admin/vouchers"
+        <router-link v-if="can('vouchers.view')" to="/admin/vouchers"
           ><i class="bi bi-ticket-perforated"></i
           ><span>Vouchers</span></router-link
         >
-        <router-link to="/admin/payments"
+        <router-link v-if="can('payments.view')" to="/admin/payments"
           ><i class="bi bi-wallet2"></i><span>Payments</span></router-link
         >
-        <router-link to="/admin/sessions"
+        <router-link v-if="can('sessions.view')" to="/admin/sessions"
           ><i class="bi bi-wifi"></i><span>Sessions</span></router-link
         >
-        <router-link to="/admin/router"
+        <router-link v-if="can('router.view')" to="/admin/router"
           ><i class="bi bi-router"></i><span>Router</span></router-link
         >
-        <router-link v-if="advancedAllowed" to="/admin/router/advanced"
+        <router-link v-if="can('router.advanced')" to="/admin/router/advanced"
           ><i class="bi bi-tools"></i><span>Advanced Tools</span></router-link
         >
-        <router-link to="/admin/support"><i class="bi bi-life-preserver"></i><span>Support</span></router-link>
-        <router-link to="/admin/logs"
+        <router-link v-if="can('support.view')" to="/admin/support"><i class="bi bi-life-preserver"></i><span>Support</span></router-link>
+        <router-link v-if="can('logs.view')" to="/admin/logs"
           ><i class="bi bi-journal-text"></i><span>Errors</span></router-link
         >
       </nav>
@@ -81,13 +76,13 @@ async function logout() {
       class="admin-bottom-nav d-lg-none"
       aria-label="Mobile admin navigation"
     >
-      <router-link to="/admin" exact
+      <router-link v-if="can('dashboard.view')" to="/admin" exact
         ><i class="bi bi-grid"></i><span>Home</span></router-link
       >
-      <router-link to="/admin/payments"
+      <router-link v-if="can('payments.view')" to="/admin/payments"
         ><i class="bi bi-wallet2"></i><span>Sales</span></router-link
       >
-      <router-link to="/admin/vouchers"
+      <router-link v-if="can('vouchers.view')" to="/admin/vouchers"
         ><i class="bi bi-ticket-perforated"></i
         ><span>Vouchers</span></router-link
       >
@@ -104,6 +99,7 @@ async function logout() {
       >
         <div class="admin-sheet__panel">
           <div class="admin-sheet__handle"></div>
+          <router-link v-if="can('users.view')" to="/admin/users" @click="moreOpen = false"><i class="bi bi-people"></i>Users</router-link>
           <div class="admin-sheet__head">
             <strong>More</strong>
             <button
@@ -114,20 +110,20 @@ async function logout() {
               <i class="bi bi-x-lg"></i>
             </button>
           </div>
-          <router-link to="/admin/plans" @click="moreOpen = false"
+          <router-link v-if="can('plans.view')" to="/admin/plans" @click="moreOpen = false"
             ><i class="bi bi-box"></i>Packages</router-link
           >
-          <router-link to="/admin/sessions" @click="moreOpen = false"
+          <router-link v-if="can('sessions.view')" to="/admin/sessions" @click="moreOpen = false"
             ><i class="bi bi-wifi"></i>Sessions</router-link
           >
-          <router-link to="/admin/router" @click="moreOpen = false"
+          <router-link v-if="can('router.view')" to="/admin/router" @click="moreOpen = false"
             ><i class="bi bi-router"></i>Router</router-link
           >
-          <router-link v-if="advancedAllowed" to="/admin/router/advanced" @click="moreOpen = false"
+          <router-link v-if="can('router.advanced')" to="/admin/router/advanced" @click="moreOpen = false"
             ><i class="bi bi-tools"></i>Advanced Tools</router-link
           >
-          <router-link to="/admin/support" @click="moreOpen = false"><i class="bi bi-life-preserver"></i><span>Support</span></router-link>
-        <router-link to="/admin/logs" @click="moreOpen = false"
+          <router-link v-if="can('support.view')" to="/admin/support" @click="moreOpen = false"><i class="bi bi-life-preserver"></i><span>Support</span></router-link>
+        <router-link v-if="can('logs.view')" to="/admin/logs" @click="moreOpen = false"
             ><i class="bi bi-journal-text"></i>Errors</router-link
           >
           <button class="admin-sheet__logout" @click="logout">

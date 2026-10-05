@@ -102,7 +102,8 @@ class SnippeLivePaymentTest extends TestCase
     public function test_merchant_secrets_are_encrypted_and_not_serialized(): void {
         $g=$this->gateway();$raw=DB::table('payment_gateway_accounts')->where('id',$g->id)->first();
         $this->assertNotSame($g->api_key_encrypted,$raw->api_key_encrypted);$this->assertNotSame($g->webhook_secret_encrypted,$raw->webhook_secret_encrypted);
-        $u=User::create(['name'=>'Admin','email'=>'admin@example.test','password'=>'test']);$token='test-admin';AdminApiToken::create(['user_id'=>$u->id,'token_hash'=>hash('sha256',$token),'expires_at'=>now()->addHour()]);
+        $u=User::create(['name'=>'Admin','email'=>'admin@example.test','password'=>'test']);
+        $u->forceFill(['is_super_user' => true])->save();$token='test-admin';AdminApiToken::create(['user_id'=>$u->id,'token_hash'=>hash('sha256',$token),'expires_at'=>now()->addHour()]);
         $this->getJson('/api/admin/businesses/'.$g->business->uuid,['Authorization'=>'Bearer '.$token])->assertOk()->assertJsonPath('gateway_accounts.0.api_key_configured',true)->assertDontSee($g->api_key_encrypted)->assertDontSee($g->webhook_secret_encrypted);
         $this->getJson('/api/admin/businesses')->assertUnauthorized();
     }
@@ -128,7 +129,8 @@ class SnippeLivePaymentTest extends TestCase
         $g->update(['active'=>false]);$this->webhook($g,$this->event($p))->assertStatus(400);$this->assertNull($o->fresh()->paid_at);
     }
     public function test_gateway_admin_creation_update_and_credentials_remain_private(): void {
-        $u=User::create(['name'=>'Admin','email'=>'merchant-admin@example.test','password'=>'test']);$token='merchant-admin';
+        $u=User::create(['name'=>'Admin','email'=>'merchant-admin@example.test','password'=>'test']);
+        $u->forceFill(['is_super_user' => true])->save();$token='merchant-admin';
         AdminApiToken::create(['user_id'=>$u->id,'token_hash'=>hash('sha256',$token),'expires_at'=>now()->addHour()]);$h=['Authorization'=>'Bearer '.$token];
         $b=$this->postJson('/api/admin/businesses',['name'=>'Merchant B','code'=>'MERCHANT_B','status'=>'active'],$h)->assertCreated()->json();
         $payload=['api_key'=>'private-test-key','webhook_secret'=>'private-test-secret','base_url'=>'https://api.snippe.sh','payment_profile_id'=>'prof_b','active'=>true];

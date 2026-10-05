@@ -42,6 +42,7 @@ class VoucherRecoveryTest extends TestCase
     private function admin(): array
     {
         $user = User::create(['name' => 'Operator', 'email' => Str::random(8) . '@example.test', 'password' => 'test-only']);
+        $user->forceFill(['is_super_user' => true])->save();
         $token = Str::random(40);
         AdminApiToken::create(['user_id' => $user->id, 'token_hash' => hash('sha256', $token)]);
 

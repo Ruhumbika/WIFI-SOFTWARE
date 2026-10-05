@@ -12,7 +12,8 @@ class AdminAnalyticsSupportTest extends TestCase
     use RefreshDatabase;
     protected function setUp(): void { parent::setUp(); Http::preventStrayRequests(); Bus::fake([ProvisionPaidOrder::class]); $this->travelTo(now()->setDate(2026,10,2)->setTime(12,0)); }
     private function admin(): array {
-        $user=User::create(['name'=>'Admin','email'=>Str::uuid().'@example.test','password'=>'test-only']); $token=Str::random(40);
+        $user=User::create(['name'=>'Admin','email'=>Str::uuid().'@example.test','password'=>'test-only']);
+        $user->forceFill(['is_super_user' => true])->save(); $token=Str::random(40);
         AdminApiToken::create(['user_id'=>$user->id,'token_hash'=>hash('sha256',$token),'expires_at'=>now()->addHour()]); return ['Authorization'=>'Bearer '.$token];
     }
     private function payment(string $status='completed', array $fields=[]): Payment {

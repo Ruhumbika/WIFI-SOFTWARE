@@ -21,6 +21,7 @@ class RouterCustomizationTest extends TestCase
     private function headers(bool $allowed = true): array
     {
         $user = User::create(['name' => 'Admin', 'email' => Str::random(8).'@example.test', 'password' => 'test-only']);
+        $user->forceFill(['is_super_user' => $allowed])->save();
         $user->access_advanced_network_tools = $allowed;
         $user->save();
         $plain = Str::random(40);
