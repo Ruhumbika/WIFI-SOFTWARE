@@ -75,9 +75,34 @@ class SnippeClient
             'metadata'=>['business_uuid'=>$gateway->business->uuid, 'order_uuid'=>$order->uuid, 'payment_uuid'=>$payment->uuid, 'system'=>'wifi'],
         ], $payment->idempotency_key);
     }
+    /** Resolve merchant settings centrally; consuming systems supply transaction data only. */
+    public function createConsumerSession(Payment $payment, \App\Models\PaymentConsumer $consumer, PaymentGatewayAccount $gateway): array
+    {
+        $this->assertConfigured($gateway);
+        if (!$gateway->payment_profile_id || $payment->business_id !== $gateway->business_id
+            || $consumer->business_id !== $gateway->business_id || $payment->payment_consumer_id !== $consumer->id
+            || $payment->order_id !== null) throw new RuntimeException('Payment account mismatch.');
+        $this->assertUrl($gateway->webhook_url);
+        $redirect = $consumer->return_origin.$payment->source_return_path;
+        $this->assertUrl($redirect);
+        return $this->request($gateway, 'post', '/api/v1/sessions', [
+            'amount'=>(int) $payment->amount, 'currency'=>$payment->currency,
+            'allowed_methods'=>['mobile_money'], 'allow_custom_amount'=>false,
+            'profile_id'=>$gateway->payment_profile_id, 'webhook_url'=>$gateway->webhook_url,
+            'customer'=>['phone'=>$payment->customer_phone_encrypted], 'redirect_url'=>$redirect,
+            'description'=>$consumer->code.' payment '.$payment->source_reference,
+            'metadata'=>['business_uuid'=>$gateway->business->uuid, 'payment_uuid'=>$payment->uuid,
+                'system'=>$consumer->code, 'source_reference'=>$payment->source_reference],
+        ], $payment->idempotency_key);
+    }
+
     public function getSession(PaymentGatewayAccount $gateway, string $reference): array
     {
         return $this->request($gateway, 'get', '/api/v1/sessions/'.rawurlencode($reference));
+    }
+    public function cancelSession(PaymentGatewayAccount $gateway, string $reference): array
+    {
+        return $this->request($gateway, 'post', '/api/v1/sessions/'.rawurlencode($reference).'/cancel');
     }
     public function getPayment(PaymentGatewayAccount $gateway, string $reference): array
     {

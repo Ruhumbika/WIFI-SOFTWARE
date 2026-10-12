@@ -22,7 +22,7 @@ class ConfigureSnippeGateway extends Command
         $gateway=$configuration->save($business,$input,$gateway);
         $this->info('Gateway: '.$gateway->uuid); $this->info('Webhook: '.$gateway->webhook_url);
         if ($this->option('link-legacy') && $this->confirm('I verified that ALL unmapped historical Snippe payments for this business belong to this exact merchant account. Link them?',false)) {
-            $count=Payment::where('business_id',$business->id)->where('provider','snippe')->whereNull('payment_gateway_account_id')->whereNull('session_reference')->update(['payment_gateway_account_id'=>$gateway->id]);
+            $count=Payment::where('business_id',$business->id)->where('provider','snippe')->whereNotNull('order_id')->whereNull('payment_gateway_account_id')->whereNull('session_reference')->update(['payment_gateway_account_id'=>$gateway->id]);
             $this->info('Linked payments: '.$count);
         }
         return self::SUCCESS;

@@ -104,3 +104,10 @@ Route::middleware('admin.token')->prefix('admin')->group(function () {
     Route::get('/sessions', [AdminController::class, 'sessions'])->middleware('permission:sessions.view');
     Route::post('/sessions/{session}/disconnect', [AdminController::class, 'disconnectSession'])->middleware('permission:sessions.disconnect');
 });
+
+// Authenticated server-to-server API. Each token is bound to one business installation.
+Route::prefix('integrations/payments')->middleware('throttle:120,1')->controller(\App\Http\Controllers\ConsumerPaymentController::class)->group(function () {
+    Route::get('/configuration', 'configuration');
+    Route::post('/', 'store');
+    Route::get('/{uuid}', 'show')->whereUuid('uuid');
+});

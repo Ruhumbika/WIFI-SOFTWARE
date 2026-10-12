@@ -34,6 +34,11 @@ class SnippeWebhookController extends Controller
         // Sessions documentation omits event IDs; the signed payment reference + type is a stable fallback.
         abort_if(isset($event['id']) && (!is_string($event['id']) || strlen($event['id']) > 255),422,'Invalid event ID.');
         $eventId = 'snippe:'.hash('sha256', $gateway->uuid.'|'.($event['id'] ?? ($type.'|'.$reference.'|'.$session)));
+        $externalUuid = data_get($event, 'data.metadata.payment_uuid');
+        if (is_string($externalUuid) && Payment::where('uuid', $externalUuid)->whereNotNull('payment_consumer_id')->exists()) {
+            $result = app(\App\Services\ConsumerPaymentService::class)->webhook($gateway, $event, $eventId);
+            return response()->json(['ok'=>true] + $result);
+        }
         $result = DB::transaction(function () use ($gateway,$event,$eventId,$reference,$session,$type) {
             $query = Payment::where('provider','snippe')->where('payment_gateway_account_id',$gateway->id);
             $paymentUuid = data_get($event,'data.metadata.payment_uuid');

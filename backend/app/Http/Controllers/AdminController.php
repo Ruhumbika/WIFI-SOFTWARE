@@ -39,9 +39,9 @@ class AdminController extends Controller
                 ->count(),
             'pending_provision' => Voucher::where('status', 'provision_pending')->count(),
             'failed_payments' => $analytics['statuses']['failed'] ?? 0,
-            'pending_payments' => Payment::where('status', 'pending')->count(),
+            'pending_payments' => Payment::whereNotNull('order_id')->where('status', 'pending')->count(),
             'last_sync' => $health['last_successful_sync'],
-            'recent_payments' => Payment::with('order.plan')->latest()->limit(10)->get(),
+            'recent_payments' => Payment::whereNotNull('order_id')->with('order.plan')->latest()->limit(10)->get(),
         ];
     }
 
