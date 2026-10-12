@@ -29,7 +29,7 @@ final class PaymentReportingService
             'plan_id'=>['nullable','integer','exists:plans,id'], 'search'=>['nullable','string','max:100'],
             'page'=>['nullable','integer','min:1'], 'per_page'=>['nullable','integer','min:1','max:100'],
         ]);
-        $q = Payment::with('order.plan')->leftJoin('orders','orders.id','=','payments.order_id')->select('payments.*');
+        $q = Payment::whereNotNull('payments.order_id')->with('order.plan')->leftJoin('orders','orders.id','=','payments.order_id')->select('payments.*');
         if (($data['status'] ?? 'all') !== 'all') $q->where('payments.status',$data['status']);
         if (!empty($data['plan_id'])) $q->whereHas('order',fn ($o)=>$o->where('plan_id',$data['plan_id']));
         if (!empty($data['search'])) {
@@ -50,7 +50,7 @@ final class PaymentReportingService
             ->orderByDesc('payments.id')->paginate($data['per_page'] ?? 50)->withQueryString();
     }
     private function paid(CarbonImmutable $start, CarbonImmutable $end): Builder {
-        return Payment::where('payments.status','completed')->where('payments.completed_at','>=',$start)->where('payments.completed_at','<',$end);
+        return Payment::whereNotNull('payments.order_id')->where('payments.status','completed')->where('payments.completed_at','>=',$start)->where('payments.completed_at','<',$end);
     }
     private function totals(Builder $q): array {
         return $q->selectRaw('currency, COUNT(*) AS sales, SUM(amount) AS gross, SUM(CASE WHEN net_amount IS NOT NULL AND fee_amount IS NOT NULL AND settlement_currency = currency THEN net_amount ELSE NULL END) AS net, SUM(CASE WHEN net_amount IS NOT NULL AND fee_amount IS NOT NULL AND settlement_currency = currency THEN fee_amount ELSE NULL END) AS fees, SUM(CASE WHEN net_amount IS NOT NULL AND fee_amount IS NOT NULL AND settlement_currency = currency THEN 1 ELSE 0 END) AS settled_sales')->groupBy('currency')->get()->map(fn ($row)=>[
@@ -70,7 +70,7 @@ final class PaymentReportingService
         $packages = $this->paid($start,$end)->join('orders','orders.id','=','payments.order_id')->join('plans','plans.id','=','orders.plan_id')
             ->selectRaw('plans.id AS plan_id, plans.name, payments.currency, COUNT(*) AS sales, SUM(payments.amount) AS gross, SUM(CASE WHEN payments.settlement_currency = payments.currency AND payments.fee_amount IS NOT NULL THEN payments.net_amount ELSE NULL END) AS net, SUM(CASE WHEN payments.settlement_currency = payments.currency AND payments.fee_amount IS NOT NULL AND payments.net_amount IS NOT NULL THEN 1 ELSE 0 END) AS settled_sales')
             ->groupBy('plans.id','plans.name','payments.currency')->orderByDesc('sales')->get();
-        $status = Payment::where(fn ($q)=>$q->where(fn ($paid)=>$paid->where('status','completed')->where('completed_at','>=',$start)->where('completed_at','<',$end))
+        $status = Payment::whereNotNull('payments.order_id')->where(fn ($q)=>$q->where(fn ($paid)=>$paid->where('status','completed')->where('completed_at','>=',$start)->where('completed_at','<',$end))
             ->orWhere(fn ($other)=>$other->where('status','!=','completed')->where('updated_at','>=',$start)->where('updated_at','<',$end)))
             ->selectRaw('status, COUNT(*) AS count')->groupBy('status')->pluck('count','status')->map(fn($n)=>(int)$n);
         return ['period'=>$period,'timezone'=>self::TIMEZONE,'from'=>$start->setTimezone(self::TIMEZONE)->toDateString(),'to'=>$end->setTimezone(self::TIMEZONE)->subDay()->toDateString(),'totals'=>$this->totals($this->paid($start,$end)), 'trend'=>$trend,'packages'=>$packages,'statuses'=>$status];

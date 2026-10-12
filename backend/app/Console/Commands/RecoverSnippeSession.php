@@ -10,7 +10,7 @@ class RecoverSnippeSession extends Command
     protected $description = 'Verify and link an ambiguous hosted session without creating or completing a payment';
     public function handle(SnippeClient $client): int
     {
-        $payment=Payment::where('uuid',$this->argument('payment'))->where('provider','snippe')->firstOrFail();
+        $payment=Payment::where('uuid',$this->argument('payment'))->where('provider','snippe')->whereNotNull('order_id')->firstOrFail();
         $gateway=$payment->gatewayAccount;
         if (!$gateway || $payment->business_id !== $gateway->business_id || $payment->order->business_id !== $gateway->business_id) {
             $this->error('Merchant mapping does not match.'); return self::FAILURE;

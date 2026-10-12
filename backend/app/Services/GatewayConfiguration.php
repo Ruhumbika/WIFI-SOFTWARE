@@ -25,7 +25,14 @@ class GatewayConfiguration
             if ($gateway) {
                 $gateway = PaymentGatewayAccount::lockForUpdate()->findOrFail($gateway->id);
                 abort_unless($gateway->business_id === $business->id,404);
-                if ($gateway->payments()->where('status','pending')->exists() && (isset($data['api_key']) || isset($data['webhook_secret']) || $data['base_url'] !== $gateway->base_url)) {
+                $hasUnresolvedPayments = $gateway->payments()->where(fn ($query) => $query
+                    ->where('status', 'pending')
+                    ->orWhere(fn ($external) => $external->whereNotNull('payment_consumer_id')->where('status', 'failed'))
+                )->exists();
+                $changesMerchant = isset($data['api_key']) || isset($data['webhook_secret'])
+                    || $data['base_url'] !== $gateway->base_url
+                    || $data['payment_profile_id'] !== $gateway->payment_profile_id || !$data['active'];
+                if ($hasUnresolvedPayments && $changesMerchant) {
                     throw ValidationException::withMessages(['gateway'=>'Resolve pending payments before changing merchant credentials.']);
                 }
             }
